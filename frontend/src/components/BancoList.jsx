@@ -151,25 +151,9 @@ function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
   )
 }
 
-export default function BancoList({ bancos, loading, onSelect, onDelete, onAddClick, onGestionar, maxBancos = 0 }) {
-  const atLimit = maxBancos > 0 && bancos.length >= maxBancos
-
+export default function BancoList({ bancos, loading, onSelect, onDelete, onAddClick, onGestionar }) {
   return (
     <div>
-      {maxBancos > 0 && (
-        <div style={{
-          background: '#fefce8', border: '1px solid #fde047',
-          borderRadius: 10, padding: '12px 18px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          marginBottom: 20, fontSize: 13,
-        }}>
-          <span style={{ fontSize: 16 }}>⚡</span>
-          <span style={{ color: '#854d0e', fontWeight: 600 }}>
-            Versión demo — máximo {maxBancos} banco{maxBancos !== 1 ? 's' : ''}.
-          </span>
-        </div>
-      )}
-
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         marginBottom: 24,
@@ -183,16 +167,12 @@ export default function BancoList({ bancos, loading, onSelect, onDelete, onAddCl
           </p>
         </div>
         <button
-          onClick={atLimit ? undefined : onAddClick}
-          disabled={atLimit}
-          title={atLimit ? `Demo limitada a ${maxBancos} bancos` : undefined}
+          onClick={onAddClick}
           className="btn-primary"
           style={{
-            background: atLimit ? '#94a3b8' : '#2563eb',
-            color: '#fff', border: 'none',
+            background: '#2563eb', color: '#fff', border: 'none',
             borderRadius: 9, padding: '11px 22px', fontSize: 14,
             fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
-            cursor: atLimit ? 'not-allowed' : 'pointer',
           }}
         >
           <span style={{ fontSize: 16 }}>+</span> Agregar banco
