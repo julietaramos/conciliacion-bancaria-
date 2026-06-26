@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Variables de entorno (nunca subir al repo)
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+node_modules/
+dist/
+.DS_Store
+
+# Logs
+*.log
+backend.log
+backend_err.log
+frontend.log
+frontend_err.log
+vite.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Windows
+Thumbs.db
+desktop.ini

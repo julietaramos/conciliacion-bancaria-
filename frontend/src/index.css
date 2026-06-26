@@ -1,0 +1,44 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #eef1f8;
+  color: #0d1b4b;
+  min-height: 100vh;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c7d0e8; border-radius: 3px; }
+
+/* Hover states */
+.btn-primary { transition: background 0.15s, transform 0.1s; }
+.btn-primary:hover { background: #1d4ed8 !important; }
+.btn-primary:active { transform: scale(0.98); }
+
+.btn-secondary { transition: background 0.15s, border-color 0.15s; }
+.btn-secondary:hover { background: #f1f5f9 !important; border-color: #94a3b8 !important; }
+
+.btn-danger { transition: background 0.15s; }
+.btn-danger:hover { background: #fee2e2 !important; }
+
+.banco-card { transition: box-shadow 0.15s, transform 0.1s; }
+.banco-card:hover { box-shadow: 0 4px 16px rgba(13,27,75,0.13) !important; transform: translateY(-1px); }
+
+.nav-item { transition: background 0.15s, color 0.15s; }
+.nav-item:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+
+.stat-card { transition: box-shadow 0.15s; }
+.stat-card:hover { box-shadow: 0 4px 12px rgba(13,27,75,0.1) !important; }
+
+.download-link { transition: background 0.15s, color 0.15s; }
+.download-link:hover { background: #eff6ff !important; border-color: #2563eb !important; }
