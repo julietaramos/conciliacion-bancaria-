@@ -5,6 +5,8 @@ import FileUploader from './FileUploader'
 import ReconciliationReview from './ReconciliationReview'
 import GestionarAnteriorModal from './GestionarAnteriorModal'
 
+const MAX_BANCOS = parseInt(import.meta.env.VITE_MAX_BANCOS || '0')
+
 export default function BancosPage({ initialBanco, onClearInitial }) {
   const [bancos, setBancos]               = useState([])
   const [loading, setLoading]             = useState(true)
@@ -34,7 +36,10 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre }),
     })
-    if (!res.ok) throw new Error('No se pudo agregar el banco.')
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || 'No se pudo agregar el banco.')
+    }
     setShowAddModal(false)
     await fetchBancos()
   }
@@ -103,6 +108,7 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
           onDelete={handleDeleteBanco}
           onAddClick={() => setShowAddModal(true)}
           onGestionar={setGestionarBanco}
+          maxBancos={MAX_BANCOS}
         />
       )}
 

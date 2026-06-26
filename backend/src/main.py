@@ -24,8 +24,9 @@ from db.crud import (
 
 load_dotenv()
 
-APP_TZ  = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires"))
-TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "60"))
+APP_TZ     = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires"))
+TIMEOUT    = int(os.getenv("RECONCILE_TIMEOUT", "60"))
+MAX_BANCOS = int(os.getenv("MAX_BANCOS", "0"))  # 0 = sin límite
 
 
 @asynccontextmanager
@@ -192,6 +193,8 @@ def listar_bancos(db: Session = Depends(get_db)):
 def agregar_banco(body: BancoIn, db: Session = Depends(get_db)):
     if not body.nombre.strip():
         raise HTTPException(422, "El nombre del banco no puede estar vacío.")
+    if MAX_BANCOS and len(get_bancos(db)) >= MAX_BANCOS:
+        raise HTTPException(403, f"Esta es una demo limitada a {MAX_BANCOS} banco{'s' if MAX_BANCOS != 1 else ''}. Para usar la versión completa, contactanos.")
     banco = create_banco(db, body.nombre)
     return {"id": str(banco.id), "nombre": banco.nombre}
 
