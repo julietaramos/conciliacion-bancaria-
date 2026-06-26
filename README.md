@@ -4,6 +4,15 @@ Aplicación web para conciliar el **Mayor Contable** contra el **Extracto Bancar
 
 ---
 
+## En resumen (4 pasos)
+
+1. **Instalar Python** — desde https://www.python.org/downloads/ — tildar **"Add Python to PATH"** durante la instalación.
+2. **Instalar Node.js** — desde https://nodejs.org — descargar la versión **LTS**.
+3. **Descargar el ZIP** del programa desde el repo en GitHub (botón verde **"< > Code"** → **"Download ZIP"**) y descomprimirlo.
+4. **Doble clic en `iniciar.bat`** — la primera vez instala todo solo y abre el navegador al terminar. Las veces siguientes arranca directo.
+
+---
+
 ## Cómo instalar y usar (guía para el contador)
 
 ### Paso 1 — Instalar Python
