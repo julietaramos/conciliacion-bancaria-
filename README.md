@@ -59,6 +59,65 @@ En la barra de tareas (abajo), vas a ver dos ventanas minimizadas llamadas **"Ba
 
 ---
 
+## Ejecución manual (sin el script)
+
+Si preferís no usar `iniciar.bat`, podés levantar la aplicación paso a paso desde la terminal.
+
+### Primera vez — instalar dependencias
+
+Abrí una terminal (CMD o PowerShell) en la carpeta del proyecto y ejecutá:
+
+```bash
+# Dependencias del backend
+pip install -r backend\requirements.txt
+
+# Dependencias del frontend
+cd frontend
+npm install
+cd ..
+```
+
+### Crear el archivo de configuración
+
+Si no existe el archivo `backend\.env`, crealo con este contenido:
+
+```
+PORT=5000
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+### Levantar el backend
+
+Abrí una terminal y ejecutá:
+
+```bash
+cd backend\src
+python -m uvicorn main:app --port 5000
+```
+
+Dejá esa terminal abierta.
+
+### Levantar el frontend
+
+Abrí **otra** terminal y ejecutá:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Dejá esa terminal abierta también.
+
+### Abrir en el navegador
+
+Ingresá a **http://localhost:5173**
+
+### Cerrar
+
+Cerrá las dos terminales (o presioná `Ctrl+C` en cada una).
+
+---
+
 ## Cómo usar la aplicación
 
 ### 1. Agregar un banco
