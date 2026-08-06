@@ -88,11 +88,24 @@ def _item_to_internal(item: dict) -> dict:
     }
 
 
+def _ajustes_to_internal(raw_ajustes: list) -> list:
+    result = []
+    for a in raw_ajustes:
+        items = [_item_to_internal(it) | {"categoria": it.get("categoria")} for it in a.get("items", [])]
+        result.append({
+            "monto":  round(float(a.get("monto", 0)), 2),
+            "motivo": a.get("motivo") or "",
+            "items":  items,
+        })
+    return result
+
+
 def _result_from_state(state: dict) -> dict:
     col1 = [_item_to_internal(x) for x in state.get("col1", [])]
     col2 = [_item_to_internal(x) for x in state.get("col2", [])]
     col3 = [_item_to_internal(x) for x in state.get("col3", [])]
     col4 = [_item_to_internal(x) for x in state.get("col4", [])]
+    ajustes = _ajustes_to_internal(state.get("ajustes", []))
 
     def _expand_pairs(raw_pairs):
         result = []
@@ -113,9 +126,11 @@ def _result_from_state(state: dict) -> dict:
         2,
     )
 
-    saldo_banco    = float(state.get("saldo_banco", 0))
-    saldo_contable = float(state.get("saldo_contable", 0))
-    diferencia     = round(saldo_banco + partidas - saldo_contable, 2)
+    saldo_banco             = float(state.get("saldo_banco", 0))
+    saldo_contable_original = float(state.get("saldo_contable", 0))
+    ajustes_total           = round(sum(a["monto"] for a in ajustes), 2)
+    saldo_contable          = round(saldo_contable_original + ajustes_total, 2)
+    diferencia              = round(saldo_banco + partidas - saldo_contable, 2)
 
     fecha_datos = None
     raw_fd = state.get("fecha_datos")
@@ -129,11 +144,13 @@ def _result_from_state(state: dict) -> dict:
         "col1": col1, "col2": col2, "col3": col3, "col4": col4,
         "matched_haber_debito": matched_hd,
         "matched_debe_credito": matched_dc,
-        "saldo_banco":    saldo_banco,
-        "saldo_contable": saldo_contable,
-        "partidas":       partidas,
-        "diferencia":     diferencia,
-        "fecha_datos":    fecha_datos,
+        "ajustes":                 ajustes,
+        "saldo_banco":             saldo_banco,
+        "saldo_contable":          saldo_contable,
+        "saldo_contable_original": saldo_contable_original,
+        "partidas":                partidas,
+        "diferencia":              diferencia,
+        "fecha_datos":             fecha_datos,
     }
 
 

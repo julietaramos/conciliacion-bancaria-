@@ -5,6 +5,20 @@ from openpyxl.styles import (
     PatternFill, Font, Alignment, Border, Side, numbers
 )
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
+_TABLE_STYLE = TableStyleInfo(
+    name="TableStyleLight1", showRowStripes=False, showColumnStripes=False,
+    showFirstColumn=False, showLastColumn=False,
+)
+
+
+def _add_table(ws, name: str, ref: str):
+    """Attach an independent AutoFilter (Excel Table) scoped to `ref` only —
+    filtering it never hides rows belonging to other tables on the sheet."""
+    table = Table(displayName=name, ref=ref)
+    table.tableStyleInfo = _TABLE_STYLE
+    ws.add_table(table)
 
 # ── Palette ────────────────────────────────────────────────────────────────────
 _DARK_BLUE  = "0D1B4B"
@@ -169,26 +183,49 @@ def generate_excel_report(result: dict) -> bytes:
         ]
         _write_data_row(ws, row, row_vals, bg)
 
+    # "Arriba" (no tildado): partidas pendientes — cada columna de datos con su
+    # propia tabla/filtro, independiente de las demás y de los conciliados de abajo.
+    last_pending_row = 7 + max_rows
+    _add_table(ws, "DebitosNoContabilizados",  f"A7:C{last_pending_row}")
+    _add_table(ws, "NoDebitadosEnExtracto",    f"D7:F{last_pending_row}")
+    _add_table(ws, "NoAcreditados",            f"H7:J{last_pending_row}")
+    _add_table(ws, "CreditosNoContabilizados", f"K7:M{last_pending_row}")
+
     # ── Verification tables ─────────────────────────────────────────────────────
+    # "Abajo" (tildado): pares conciliados — también con filtro propio por tabla.
     start_row = 8 + max_rows + 3
 
-    start_row = _write_verification_table(
+    start_row, ref_hd = _write_verification_table(
         ws, start_row,
         title="✓ Conciliados: HABER (Mayor) ↔ DÉBITO (Extracto)",
         header_a="MAYOR — Haber", header_b="EXTRACTO — Débito",
         pairs=matched_hd,
         bg_header=_YELLOW,
     )
+    if ref_hd:
+        _add_table(ws, "ConciliadosHaberDebito", ref_hd)
 
     start_row += 2
 
-    start_row = _write_verification_table(
+    start_row, ref_dc = _write_verification_table(
         ws, start_row,
         title="✓ Conciliados: DEBE (Mayor) ↔ CRÉDITO (Extracto)",
         header_a="MAYOR — Debe", header_b="EXTRACTO — Crédito",
         pairs=matched_dc,
         bg_header=_GREEN,
     )
+    if ref_dc:
+        _add_table(ws, "ConciliadosDebeCredito", ref_dc)
+
+    # ── Ajustes de saldo contable (errores de meses anteriores) ────────────────
+    ajustes = result.get("ajustes") or []
+    if ajustes:
+        start_row += 2
+        _write_ajustes_section(
+            ws, start_row, ajustes,
+            saldo_original=result.get("saldo_contable_original", result["saldo_contable"]),
+            saldo_ajustado=result["saldo_contable"],
+        )
 
     # ── Freeze top rows ─────────────────────────────────────────────────────────
     ws.freeze_panes = "A8"
@@ -208,8 +245,12 @@ def _write_verification_table(
     header_a: str, header_b: str,
     pairs: list,
     bg_header: str,
-) -> int:
-    """Write a pair verification table. Returns the next available row."""
+) -> tuple[int, str | None]:
+    """Write a pair verification table.
+
+    Returns (next_available_row, table_ref). table_ref is None when there are
+    no pairs to show — an empty table has nothing to filter on.
+    """
 
     c = ws.cell(row=start_row, column=1, value=title)
     c.font = _font(bold=True, size=11, color=_DARK_BLUE)
@@ -219,9 +260,10 @@ def _write_verification_table(
         ws.cell(row=start_row, column=col).fill = _fill(bg_header)
     start_row += 1
 
+    header_row = start_row
     headers = {
-        1: "Fecha (Mayor)", 2: "Concepto (Mayor)", 3: "Monto",
-        4: "Fecha (Extracto)", 5: "Concepto (Extracto)", 6: "Monto",
+        1: "Fecha (Mayor)", 2: "Concepto (Mayor)", 3: "Monto (Mayor)",
+        4: "Fecha (Extracto)", 5: "Concepto (Extracto)", 6: "Monto (Extracto)",
         7: "Fuente",
     }
     _set_header_row(ws, start_row, headers, _MED_BLUE, size=9)
@@ -229,7 +271,7 @@ def _write_verification_table(
 
     if not pairs:
         ws.cell(row=start_row, column=1, value="— Sin pares conciliados —").font = _font(color="888888")
-        return start_row + 1
+        return start_row + 1, None
 
     for i, (mayor_item, extracto_items) in enumerate(pairs):
         from_anterior = mayor_item.get("mes_anterior") or any(
@@ -251,6 +293,9 @@ def _write_verification_table(
             _write_data_row(ws, start_row, row_vals, bg)
             start_row += 1
 
+    last_data_row = start_row - 1
+    table_ref = f"A{header_row}:G{last_data_row}"
+
     total_monto = sum(e["monto"] for _, exts in pairs for e in exts)
     ws.cell(row=start_row, column=2, value="TOTAL").font = _font(bold=True)
     t = ws.cell(row=start_row, column=3, value=total_monto)
@@ -259,4 +304,76 @@ def _write_verification_table(
     t.alignment = _align("right")
     t.fill = _fill(bg_header)
 
-    return start_row + 1
+    return start_row + 1, table_ref
+
+
+_CATEGORIA_LABELS = {
+    "col1": "Débitos no Contabilizados",
+    "col2": "No Debitados en Extracto",
+    "col3": "No Acreditados",
+    "col4": "Créditos no Contabilizados",
+}
+_VIOLET = "6D28D9"
+
+
+def _write_ajustes_section(
+    ws, start_row: int,
+    ajustes: list,
+    saldo_original: float,
+    saldo_ajustado: float,
+) -> int:
+    """Ajustes de saldo contable por errores de meses anteriores: registra el
+    monto/motivo de cada ajuste y qué pendientes quedaron escritos de baja por él,
+    como respaldo de auditoría (por qué el saldo contable no matchea el Mayor crudo)."""
+
+    c = ws.cell(row=start_row, column=1, value="🔧 Ajustes de Saldo Contable (errores de meses anteriores)")
+    c.font = _font(bold=True, size=12, color=_DARK_BLUE)
+    c.fill = _fill(_PURPLE)
+    for col in range(2, 14):
+        ws.cell(row=start_row, column=col).fill = _fill(_PURPLE)
+    start_row += 1
+
+    ws.cell(row=start_row, column=1, value="Saldo Contable Original (Mayor)").font = _font(bold=True)
+    v = ws.cell(row=start_row, column=3, value=saldo_original)
+    v.number_format = _NUM_FMT
+    v.alignment = _align("right")
+    start_row += 1
+
+    ws.cell(row=start_row, column=1, value="Saldo Contable Ajustado").font = _font(bold=True)
+    v = ws.cell(row=start_row, column=3, value=saldo_ajustado)
+    v.number_format = _NUM_FMT
+    v.alignment = _align("right")
+    start_row += 2
+
+    for idx, ajuste in enumerate(ajustes, start=1):
+        c = ws.cell(row=start_row, column=1, value=f"Ajuste {idx}: {ajuste['motivo'] or '(sin motivo)'}")
+        c.font = _font(bold=True, size=10, color=_VIOLET)
+        m = ws.cell(row=start_row, column=4, value=ajuste["monto"])
+        m.number_format = _NUM_FMT
+        m.font = _font(bold=True)
+        m.alignment = _align("right")
+        start_row += 1
+
+        header_row = start_row
+        _set_header_row(ws, start_row, {1: "Fecha", 2: "Concepto", 3: "Categoría", 4: "Monto"}, _VIOLET, size=9)
+        start_row += 1
+
+        items = ajuste.get("items") or []
+        if not items:
+            ws.cell(row=start_row, column=1, value="— Sin ítems —").font = _font(color="888888")
+            start_row += 1
+        else:
+            for i, item in enumerate(items):
+                bg = _ORANGE if item.get("mes_anterior") else (_GREY_LIGHT if i % 2 == 0 else _WHITE)
+                row_vals = [
+                    _fmt_date(item), item["descripcion"],
+                    _CATEGORIA_LABELS.get(item.get("categoria"), item.get("categoria")),
+                    item["monto"],
+                ]
+                _write_data_row(ws, start_row, row_vals, bg)
+                start_row += 1
+            _add_table(ws, f"AjusteItems{idx}", f"A{header_row}:D{start_row - 1}")
+
+        start_row += 2
+
+    return start_row

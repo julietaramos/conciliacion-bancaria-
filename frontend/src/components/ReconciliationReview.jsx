@@ -291,6 +291,184 @@ function PendingGroup({
   )
 }
 
+// ── Ajuste de Saldo Contable ──────────────────────────────────────────────────
+
+const CATEGORIAS_AJUSTE = [
+  { key: 'col1', label: 'Débitos no Contabilizados',  sign:  1 },
+  { key: 'col2', label: 'No Debitados en Extracto',    sign: -1 },
+  { key: 'col3', label: 'No Acreditados',              sign:  1 },
+  { key: 'col4', label: 'Créditos no Contabilizados',  sign: -1 },
+]
+
+function AjusteItemRow({ item, selected, onClick }) {
+  return (
+    <div
+      onClick={() => onClick(item.id)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '8px 10px', borderRadius: 7, marginBottom: 4,
+        cursor: 'pointer',
+        background: selected ? '#ede9fe' : item.mes_anterior ? '#fff7ed' : '#fff',
+        border: `2px solid ${selected ? '#7c3aed' : item.mes_anterior ? '#fed7aa' : '#e2e8f0'}`,
+        transition: 'all 0.1s',
+        userSelect: 'none',
+      }}
+    >
+      <div style={{
+        width: 16, height: 16, borderRadius: 3,
+        border: `2px solid ${selected ? '#7c3aed' : '#cbd5e1'}`,
+        background: selected ? '#7c3aed' : 'transparent',
+        flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {selected && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
+      </div>
+      <span style={{
+        fontSize: 9, fontWeight: 800, borderRadius: 3, padding: '1px 5px', flexShrink: 0,
+        color: '#6d28d9', background: '#ede9fe',
+      }}>{item.categoriaLabel}</span>
+      <span style={{ fontSize: 10, color: '#94a3b8', width: 52, flexShrink: 0 }}>
+        {fmtFecha(item.fecha)}
+      </span>
+      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>
+        {item.descripcion || '—'}
+      </span>
+      <span style={{ fontSize: 13, fontWeight: 800, color: '#0d1b4b', flexShrink: 0, marginLeft: 4 }}>
+        {fmtMonto(item.monto)}
+      </span>
+    </div>
+  )
+}
+
+function AjusteCard({ ajuste, onDeshacer }) {
+  return (
+    <div style={{
+      borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 6,
+      padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10,
+      background: '#faf5ff',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+          {ajuste.motivo || 'Ajuste de saldo contable'}
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+          {fmtMonto(ajuste.monto)} · {ajuste.items.length} ítem{ajuste.items.length !== 1 ? 's' : ''} escrito{ajuste.items.length !== 1 ? 's' : ''} de baja
+        </div>
+      </div>
+      <button
+        onClick={() => onDeshacer(ajuste.id)}
+        title="Deshacer ajuste"
+        style={{ background: '#fff0f0', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+      >Deshacer</button>
+    </div>
+  )
+}
+
+function AjusteSaldoSection({ cols, ajustes, onAplicar, onDeshacer }) {
+  const [monto, setMonto]   = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [selIds, setSelIds] = useState([])
+
+  const montoNum    = parseFloat(String(monto).replace(',', '.'))
+  const montoValido = !isNaN(montoNum) && montoNum !== 0
+
+  const allItems = useMemo(() => CATEGORIAS_AJUSTE.flatMap(cat =>
+    cols[cat.key].map(item => ({ ...item, categoria: cat.key, categoriaLabel: cat.label, sign: cat.sign }))
+  ), [cols])
+
+  function toggle(id) {
+    setSelIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  }
+
+  const target    = montoValido ? round2(-montoNum) : null
+  const covered   = round2(selIds.reduce((sum, id) => {
+    const item = allItems.find(x => x.id === id)
+    return sum + (item ? item.sign * item.monto : 0)
+  }, 0))
+  const remaining = target !== null ? round2(target - covered) : null
+  const balanced  = remaining !== null && Math.abs(remaining) < 0.02
+  const canAplicar = montoValido && selIds.length > 0 && balanced
+
+  let barBg = '#fafafa', barBorder = '#f1f5f9', barMsgColor = '#94a3b8'
+  let barMsg = 'Ingresá el monto y motivo del ajuste, y tildá los pendientes que ese ajuste explica.'
+  if (montoValido && selIds.length === 0) {
+    barBg = '#fff7ed'; barBorder = '#fed7aa'; barMsgColor = '#92400e'
+    barMsg = `Objetivo: ${fmtMonto(target)} — tildá pendientes (de cualquier columna) hasta cubrir ese monto.`
+  } else if (montoValido && !balanced) {
+    barBg = '#fff7ed'; barBorder = '#f59e0b'; barMsgColor = '#b45309'
+    barMsg = `Objetivo: ${fmtMonto(target)} — Cubierto: ${fmtMonto(covered)} — Falta: ${fmtMonto(remaining)}`
+  } else if (canAplicar) {
+    barBg = '#f0fdf4'; barBorder = '#16a34a'; barMsgColor = '#15803d'
+    barMsg = `✓ Cubierto: ${fmtMonto(covered)} (${selIds.length} ítem${selIds.length > 1 ? 's' : ''}). Hacé clic en Aplicar ajuste.`
+  }
+
+  function handleAplicar() {
+    const items = allItems.filter(x => selIds.includes(x.id))
+    onAplicar(round2(montoNum), motivo.trim(), items)
+    setMonto(''); setMotivo(''); setSelIds([])
+  }
+
+  return (
+    <>
+      {ajustes.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          {ajustes.map(a => <AjusteCard key={a.id} ajuste={a} onDeshacer={onDeshacer} />)}
+        </div>
+      )}
+
+      <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(13,27,75,0.07)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder="Monto del ajuste (ej: -5000)"
+            value={monto}
+            onChange={e => setMonto(e.target.value)}
+            style={{ flex: '0 0 200px', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13 }}
+          />
+          <input
+            type="text"
+            placeholder="Motivo (ej: corrección asiento duplicado marzo)"
+            value={motivo}
+            onChange={e => setMotivo(e.target.value)}
+            style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13 }}
+          />
+        </div>
+
+        <div style={{
+          borderBottom: `2px solid ${barBorder}`, padding: '10px 14px', background: barBg,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 12, color: barMsgColor, flex: 1, lineHeight: 1.4 }}>{barMsg}</span>
+          <button
+            onClick={handleAplicar}
+            disabled={!canAplicar}
+            style={{
+              background: canAplicar ? '#7c3aed' : '#e2e8f0',
+              color: canAplicar ? '#fff' : '#94a3b8',
+              border: 'none', borderRadius: 8, padding: '8px 18px',
+              fontSize: 13, fontWeight: 700,
+              cursor: canAplicar ? 'pointer' : 'default', flexShrink: 0,
+            }}
+          >
+            Aplicar ajuste
+          </button>
+        </div>
+
+        <div style={{ padding: '10px 12px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {allItems.length === 0
+            ? <EmptyCol text="No hay pendientes para ajustar." />
+            : allItems.map(item => (
+                <AjusteItemRow key={item.id} item={item}
+                  selected={selIds.includes(item.id)}
+                  onClick={toggle}
+                />
+              ))
+          }
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ReconciliationReview({ banco, previewData, onBack, onSuccess }) {
@@ -301,6 +479,8 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
 
   const [matchedHD, setMatchedHD] = useState(() => normalizePairs(previewData.matched_haber_debito))
   const [matchedDC, setMatchedDC] = useState(() => normalizePairs(previewData.matched_debe_credito))
+
+  const [ajustes, setAjustes] = useState([])  // { id, monto, motivo, items: [{...item, categoria}] }
 
   // HABER/DÉBITO selections: 1 Mayor + N Extracto
   const [selHaber,   setSelHaber]   = useState(null)  // col2 id
@@ -321,7 +501,10 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
     col4.reduce((s, x) => s + x.monto, 0)
   ), [col1, col2, col3, col4])
 
-  const diferencia = round2(previewData.saldo_banco + partidas - previewData.saldo_contable)
+  const ajustesTotal        = useMemo(() => round2(ajustes.reduce((s, a) => s + a.monto, 0)), [ajustes])
+  const saldoContableAjustado = round2(previewData.saldo_contable + ajustesTotal)
+
+  const diferencia = round2(previewData.saldo_banco + partidas - saldoContableAjustado)
   const difOk = Math.abs(diferencia) < 0.02
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -384,6 +567,27 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
     setCol4(p => [...p, ...par.extractos])
   }
 
+  function aplicarAjuste(monto, motivo, items) {
+    const ids = new Set(items.map(x => x.id))
+    setCol1(p => p.filter(x => !ids.has(x.id)))
+    setCol2(p => p.filter(x => !ids.has(x.id)))
+    setCol3(p => p.filter(x => !ids.has(x.id)))
+    setCol4(p => p.filter(x => !ids.has(x.id)))
+    setAjustes(p => [...p, { id: crypto.randomUUID(), monto, motivo, items }])
+  }
+
+  function deshacerAjuste(ajusteId) {
+    const ajuste = ajustes.find(a => a.id === ajusteId)
+    if (!ajuste) return
+    setAjustes(p => p.filter(a => a.id !== ajusteId))
+    const porCategoria = { col1: [], col2: [], col3: [], col4: [] }
+    ajuste.items.forEach(it => porCategoria[it.categoria].push(it))
+    setCol1(p => [...p, ...porCategoria.col1])
+    setCol2(p => [...p, ...porCategoria.col2])
+    setCol3(p => [...p, ...porCategoria.col3])
+    setCol4(p => [...p, ...porCategoria.col4])
+  }
+
   async function handleGenerar(download = true) {
     setLoading(true); setError(null); setDone(false)
     try {
@@ -395,6 +599,7 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
           col1, col2, col3, col4,
           matched_haber_debito: matchedHD,
           matched_debe_credito: matchedDC,
+          ajustes: ajustes.map(a => ({ monto: a.monto, motivo: a.motivo, items: a.items })),
           saldo_banco:    previewData.saldo_banco,
           saldo_contable: previewData.saldo_contable,
           fecha_datos:    previewData.fecha_datos,
@@ -460,7 +665,12 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
         {[
           { label: 'Saldo Banco',    val: fmtMonto(previewData.saldo_banco),    note: 'Saldo final del extracto',      color: '#0d1b4b', bg: '#fff' },
           { label: 'Partidas pend.', val: fmtMonto(partidas),                   note: 'Suma neta de ítems sin cruzar', color: '#0d1b4b', bg: '#fff' },
-          { label: 'Saldo Contable', val: fmtMonto(previewData.saldo_contable), note: 'Saldo final del mayor contable', color: '#0d1b4b', bg: '#fff' },
+          {
+            label: 'Saldo Contable',
+            val:   fmtMonto(saldoContableAjustado),
+            note:  ajustes.length > 0 ? `Incluye ${ajustes.length} ajuste${ajustes.length > 1 ? 's' : ''}: ${fmtMonto(ajustesTotal)}` : 'Saldo final del mayor contable',
+            color: '#0d1b4b', bg: '#fff',
+          },
           {
             label: 'Diferencia',
             val:   fmtMonto(diferencia),
@@ -498,10 +708,25 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
         />
       </div>
 
-      {/* ── Step 2: Manual pending ── */}
-      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(13,27,75,0.07)', padding: '20px 24px', marginBottom: 24 }}>
+      {/* ── Step 2: Ajuste de saldo contable ── */}
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(13,27,75,0.07)', padding: '20px 24px', marginBottom: 20 }}>
         <SectionHeader
           step="2"
+          title="Ajuste de saldo contable"
+          description="Si la diferencia viene de un error de un mes anterior (no de una transacción real que cruzar), ingresá el ajuste y tildá los pendientes que ese error explica — sin necesidad de buscarles pareja del otro lado."
+        />
+        <AjusteSaldoSection
+          cols={{ col1, col2, col3, col4 }}
+          ajustes={ajustes}
+          onAplicar={aplicarAjuste}
+          onDeshacer={deshacerAjuste}
+        />
+      </div>
+
+      {/* ── Step 3: Manual pending ── */}
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(13,27,75,0.07)', padding: '20px 24px', marginBottom: 24 }}>
+        <SectionHeader
+          step="3"
           title="Completar cruces pendientes"
           description="Seleccioná 1 ítem del Mayor (verde) para fijar el monto objetivo. Luego seleccioná uno o más ítems del Extracto (azul) hasta cubrir ese monto. Cuando cuadre, presioná Cruzar."
         />

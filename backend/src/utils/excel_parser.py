@@ -235,7 +235,7 @@ def parse_extracto(file_bytes: bytes, filename: str) -> dict:
         saldo_raw = row[saldo_col] if saldo_col is not None and row[saldo_col] is not None else None
         if saldo_raw is not None:
             s = _to_signed_float(saldo_raw)
-            if s is not None and s > 0:
+            if s is not None:
                 saldo_final = s
 
         if use_importe:

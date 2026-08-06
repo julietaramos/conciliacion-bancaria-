@@ -69,6 +69,15 @@ def save_conciliacion(db: Session, result: dict, banco_id: str | None = None, ex
             "creditos_no_contab":   len(result.get("col4", [])),
             "matched_haber_debito": len(result.get("matched_haber_debito", [])),
             "matched_debe_credito": len(result.get("matched_debe_credito", [])),
+            "ajustes": [
+                {
+                    "monto":  a["monto"],
+                    "motivo": a["motivo"],
+                    "items":  _serialize_items(a.get("items", [])),
+                }
+                for a in result.get("ajustes", [])
+            ],
+            "saldo_contable_original": result.get("saldo_contable_original"),
         },
         excel_output        = excel_bytes,
         partidas_pendientes = {
