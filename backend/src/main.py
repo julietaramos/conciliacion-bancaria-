@@ -1,15 +1,19 @@
 import asyncio
 import os
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, date
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Depends
+from fastapi import FastAPI, File, Form, Request, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
 from dotenv import load_dotenv
 
 from utils.excel_parser import parse_mayor, parse_extracto, parse_conciliacion_anterior
@@ -27,6 +31,13 @@ load_dotenv()
 APP_TZ  = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires"))
 TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "60"))
 
+# ── Auth (contraseña compartida simple) ─────────────────────────────────────────
+# Si APP_PASSWORD no está seteada (uso local con iniciar.bat), el gate queda
+# desactivado por completo — sin fricción para el flujo local existente.
+APP_PASSWORD   = os.getenv("APP_PASSWORD")
+SESSION_COOKIE = "cb_session"
+_SESSION_TOKEN = secrets.token_hex(32)  # único por proceso: reiniciar el server cierra las sesiones
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +53,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not APP_PASSWORD:
+            return await call_next(request)
+        path = request.url.path
+        if not path.startswith("/api") or path in ("/api/login", "/api/session"):
+            return await call_next(request)
+        if request.cookies.get(SESSION_COOKIE) != _SESSION_TOKEN:
+            return JSONResponse({"detail": "No autorizado."}, status_code=401)
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+
+
+class LoginIn(BaseModel):
+    password: str
+
+
+@app.post("/api/login")
+def login(body: LoginIn, response: Response, request: Request):
+    if not APP_PASSWORD or not secrets.compare_digest(body.password, APP_PASSWORD):
+        raise HTTPException(401, "Contraseña incorrecta.")
+    response.set_cookie(
+        SESSION_COOKIE, _SESSION_TOKEN,
+        httponly=True, samesite="lax", secure=(request.url.scheme == "https"),
+        max_age=60 * 60 * 24 * 30,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/session")
+def session_check(request: Request):
+    if not APP_PASSWORD:
+        return {"authenticated": True}
+    return {"authenticated": request.cookies.get(SESSION_COOKIE) == _SESSION_TOKEN}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -333,3 +382,16 @@ def descargar_ultima(banco_id: str, db: Session = Depends(get_db)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Frontend estático (build de producción) ─────────────────────────────────────
+# Solo se monta si el build existe (deploy con Docker); en desarrollo local el
+# frontend corre aparte con `npm run dev` + proxy de Vite, así que esto no aplica.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa(full_path: str):
+        return FileResponse(_FRONTEND_DIST / "index.html")

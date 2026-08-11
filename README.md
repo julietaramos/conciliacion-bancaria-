@@ -4,7 +4,23 @@ Aplicación web para conciliar el **Mayor Contable** contra el **Extracto Bancar
 
 ---
 
-## En resumen (4 pasos)
+## Uso en la nube (recomendado — guía para el contador)
+
+No hace falta instalar nada. Solo necesitás la URL y la contraseña que te compartieron:
+
+1. Entrá a la URL de la aplicación en tu navegador.
+2. Ingresá la contraseña que te dieron.
+3. Listo — usá la app normalmente (ver [Cómo usar la aplicación](#cómo-usar-la-aplicación) más abajo).
+
+> La primera vez que entrás en el día puede tardar unos 30-50 segundos en cargar — el servidor "se despierta" al recibir la primera visita. Es normal, no hace falta recargar.
+
+---
+
+## Instalación local (alternativa, sin conexión a internet)
+
+Si preferís correr la aplicación en tu propia computadora en vez de usar la versión en la nube:
+
+### En resumen (4 pasos)
 
 1. **Instalar Python** — desde https://www.python.org/downloads/ — tildar **"Add Python to PATH"** durante la instalación.
 2. **Instalar Node.js** — desde https://nodejs.org — descargar la versión **LTS**.
@@ -13,7 +29,7 @@ Aplicación web para conciliar el **Mayor Contable** contra el **Extracto Bancar
 
 ---
 
-## Cómo instalar y usar (guía para el contador)
+### Cómo instalar y usar (paso a paso)
 
 ### Paso 1 — Instalar Python
 
@@ -161,8 +177,26 @@ Bancos soportados: Galicia, Nación, Santander, BBVA y cualquier banco con colum
 
 ---
 
+## Deploy (para quien administre la app)
+
+La app corre como un único contenedor Docker (`Dockerfile` en la raíz) que sirve la API y el build de React desde el mismo origen.
+
+- **Base de datos**: Postgres (ej. proyecto free de Supabase) vía variable de entorno `DATABASE_URL`. Sin esa variable, usa SQLite local (solo para desarrollo — no persiste en hosts con filesystem efímero).
+- **Contraseña de acceso**: variable de entorno `APP_PASSWORD`. Si no está seteada, la app queda sin gate de login (comportamiento actual en local).
+- **Hosting sugerido**: Render (plan free) — "New Web Service" → Environment: Docker → conectar este repo. Variables de entorno a cargar en el dashboard de Render: `DATABASE_URL`, `APP_PASSWORD`.
+
+Build local para probar el contenedor:
+
+```bash
+docker build -t conciliacion-bancaria .
+docker run -p 5000:5000 -e APP_PASSWORD=tu-clave conciliacion-bancaria
+```
+
+---
+
 ## Stack técnico
 
 - **Backend**: Python + FastAPI + SQLAlchemy
-- **Base de datos**: SQLite local (se crea automáticamente)
+- **Base de datos**: SQLite (local) o PostgreSQL (producción, vía `DATABASE_URL`)
 - **Frontend**: React 18 + Vite
+- **Deploy**: Docker (un solo contenedor sirve API + frontend)
