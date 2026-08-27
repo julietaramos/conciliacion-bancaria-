@@ -16,10 +16,18 @@ function fmtMonto(m) {
   return `$${Number(m).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-// Normalize pairs from backend (extracto singular) to new format (extractos array)
+function filterByDescripcion(items, query) {
+  const q = query.trim().toLowerCase()
+  if (!q) return items
+  return items.filter(x => (x.descripcion || '').toLowerCase().includes(q))
+}
+
+
+// Normalize pairs from backend (mayor/extracto singular) to new format (mayores/extractos arrays)
 function normalizePairs(pairs) {
   return (pairs || []).map(p => ({
     ...p,
+    mayores:   p.mayores   ?? (p.mayor   ? [p.mayor]   : []),
     extractos: p.extractos ?? (p.extracto ? [p.extracto] : []),
   }))
 }
@@ -52,7 +60,7 @@ function ItemRow({ item, selected, side, onClick, disabled }) {
     <div
       onClick={() => !disabled && onClick(item.id)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 8,
+        display: 'flex', alignItems: 'flex-start', gap: 8,
         padding: '8px 10px', borderRadius: 7, marginBottom: 4,
         cursor: disabled ? 'default' : 'pointer',
         opacity: disabled ? 0.4 : 1,
@@ -63,17 +71,17 @@ function ItemRow({ item, selected, side, onClick, disabled }) {
       }}
     >
       <div style={{
-        width: 16, height: 16, borderRadius: side === 'mayor' ? '50%' : 3,
+        width: 16, height: 16, borderRadius: 3, marginTop: 1,
         border: `2px solid ${selected ? colors.selBorder : '#cbd5e1'}`,
         background: selected ? colors.selBorder : 'transparent',
         flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {selected && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
       </div>
-      <span style={{ fontSize: 10, color: '#94a3b8', width: 52, flexShrink: 0 }}>
+      <span style={{ fontSize: 10, color: '#94a3b8', width: 52, flexShrink: 0, marginTop: 1 }}>
         {fmtFecha(item.fecha)}
       </span>
-      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>
+      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflowWrap: 'break-word', whiteSpace: 'normal', color: '#1e293b', lineHeight: 1.4 }}>
         {item.descripcion || '—'}
       </span>
       <span style={{ fontSize: 13, fontWeight: 800, color: '#0d1b4b', flexShrink: 0, marginLeft: 4 }}>
@@ -129,6 +137,38 @@ function EmptyCol({ text }) {
   )
 }
 
+function ItemSearchBar({ value, onChange, count, sum, onSelectAll, disabled, placeholder = 'Buscar por descripción... (ej: IVA)' }) {
+  const selectDisabled = disabled ?? (count === 0)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ flex: '1 1 140px', minWidth: 0, padding: '6px 9px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12 }}
+      />
+      <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {count} ítem{count !== 1 ? 's' : ''} · {fmtMonto(sum)}
+      </span>
+      <button
+        onClick={onSelectAll}
+        disabled={selectDisabled}
+        title="Tildar todos los ítems que coinciden con la búsqueda"
+        style={{
+          fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 6, flexShrink: 0,
+          border: '1px solid #cbd5e1', whiteSpace: 'nowrap',
+          background: selectDisabled ? '#f1f5f9' : '#fff',
+          color: selectDisabled ? '#94a3b8' : '#2563eb',
+          cursor: selectDisabled ? 'default' : 'pointer',
+        }}
+      >
+        Seleccionar todo lo filtrado
+      </button>
+    </div>
+  )
+}
+
 function PairCard({ par, onDescruzar }) {
   return (
     <div style={{
@@ -136,22 +176,26 @@ function PairCard({ par, onDescruzar }) {
       border: '1px solid #e2e8f0', marginBottom: 6, display: 'flex',
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Mayor row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: '#f0fdf4', borderBottom: `1px solid ${par.extractos.length > 1 ? '#dcfce7' : 'transparent'}` }}>
-          <span style={{ fontSize: 10, fontWeight: 800, color: '#15803d', background: '#bbf7d0', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>MAYOR</span>
-          <span style={{ fontSize: 10, color: '#94a3b8', width: 54, flexShrink: 0 }}>{fmtFecha(par.mayor.fecha)}</span>
-          <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>{par.mayor.descripcion || '—'}</span>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#15803d', flexShrink: 0 }}>{fmtMonto(par.mayor.monto)}</span>
-          {par.mayor.mes_anterior && <span style={{ fontSize: 9, background: '#fed7aa', color: '#c2410c', borderRadius: 3, padding: '1px 5px', flexShrink: 0, fontWeight: 700 }}>ANT.</span>}
-        </div>
+        {/* Mayor rows (1 or more) */}
+        {par.mayores.map((m, i) => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', background: '#f0fdf4', borderTop: i > 0 ? '1px solid #dcfce7' : undefined, borderBottom: i === par.mayores.length - 1 && par.extractos.length > 0 ? '1px solid #dcfce7' : undefined }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#15803d', background: '#bbf7d0', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>
+              {par.mayores.length > 1 ? `MAYOR ${i+1}` : 'MAYOR'}
+            </span>
+            <span style={{ fontSize: 10, color: '#94a3b8', width: 54, flexShrink: 0, marginTop: 1 }}>{fmtFecha(m.fecha)}</span>
+            <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflowWrap: 'break-word', whiteSpace: 'normal', color: '#1e293b', lineHeight: 1.4 }}>{m.descripcion || '—'}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#15803d', flexShrink: 0 }}>{fmtMonto(m.monto)}</span>
+            {m.mes_anterior && <span style={{ fontSize: 9, background: '#fed7aa', color: '#c2410c', borderRadius: 3, padding: '1px 5px', flexShrink: 0, fontWeight: 700 }}>ANT.</span>}
+          </div>
+        ))}
         {/* Extracto rows (1 or more) */}
         {par.extractos.map((ext, i) => (
-          <div key={ext.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: '#eff6ff', borderTop: i > 0 ? '1px solid #dbeafe' : undefined }}>
+          <div key={ext.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', background: '#eff6ff', borderTop: i > 0 ? '1px solid #dbeafe' : undefined }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#1d4ed8', background: '#bfdbfe', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>
               {par.extractos.length > 1 ? `EXT. ${i+1}` : 'EXTRACTO'}
             </span>
-            <span style={{ fontSize: 10, color: '#94a3b8', width: 54, flexShrink: 0 }}>{fmtFecha(ext.fecha)}</span>
-            <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>{ext.descripcion || '—'}</span>
+            <span style={{ fontSize: 10, color: '#94a3b8', width: 54, flexShrink: 0, marginTop: 1 }}>{fmtFecha(ext.fecha)}</span>
+            <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflowWrap: 'break-word', whiteSpace: 'normal', color: '#1e293b', lineHeight: 1.4 }}>{ext.descripcion || '—'}</span>
             <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8', flexShrink: 0 }}>{fmtMonto(ext.monto)}</span>
             {ext.mes_anterior && <span style={{ fontSize: 9, background: '#fed7aa', color: '#c2410c', borderRadius: 3, padding: '1px 5px', flexShrink: 0, fontWeight: 700 }}>ANT.</span>}
           </div>
@@ -186,36 +230,46 @@ function MatchGroup({ title, pairs, onDescruzar, emptyText }) {
 function PendingGroup({
   titleMayor, titleExtracto, descMayor, descExtracto,
   colMayor, colExtracto,
-  selMayor, selExtractos,
-  onSelMayor, onToggleExtracto,
+  selMayores, selExtractos,
+  onToggleMayor, onToggleExtracto,
+  onSelectAllMayor, onSelectAllExtracto,
   onCruzar,
 }) {
-  const mayorItem  = colMayor.find(x => x.id === selMayor) ?? null
+  const [buscarMayor, setBuscarMayor]     = useState('')
+  const [buscarExtracto, setBuscarExtracto] = useState('')
+
+  const filtradosMayor    = useMemo(() => filterByDescripcion(colMayor, buscarMayor), [colMayor, buscarMayor])
+  const filtradosExtracto = useMemo(() => filterByDescripcion(colExtracto, buscarExtracto), [colExtracto, buscarExtracto])
+  const sumaFiltradosMayor    = round2(filtradosMayor.reduce((s, x) => s + x.monto, 0))
+  const sumaFiltradosExtracto = round2(filtradosExtracto.reduce((s, x) => s + x.monto, 0))
+
+  const mayorItems = colMayor.filter(x => selMayores.includes(x.id))
+  const objetivo   = round2(mayorItems.reduce((sum, x) => sum + x.monto, 0))
   const covered    = round2(selExtractos.reduce((sum, id) => {
     const item = colExtracto.find(x => x.id === id)
     return sum + (item?.monto ?? 0)
   }, 0))
-  const remaining  = mayorItem ? round2(mayorItem.monto - covered) : null
+  const remaining  = mayorItems.length > 0 ? round2(objetivo - covered) : null
   const balanced   = remaining !== null && Math.abs(remaining) < 0.02
-  const canCruzar  = !!mayorItem && selExtractos.length > 0 && balanced
+  const canCruzar  = mayorItems.length > 0 && selExtractos.length > 0 && balanced
 
   // Action bar content depending on state
   let barBg      = '#fafafa'
   let barBorder  = '#f1f5f9'
-  let barMsg     = 'Paso 1: seleccioná un ítem de la columna verde (Mayor).'
+  let barMsg     = 'Paso 1: seleccioná uno o más ítems de la columna verde (Mayor).'
   let barMsgColor = '#94a3b8'
 
-  if (mayorItem && selExtractos.length === 0) {
+  if (mayorItems.length > 0 && selExtractos.length === 0) {
     barBg = '#fff7ed'; barBorder = '#fed7aa'
-    barMsg = `Objetivo: ${fmtMonto(mayorItem.monto)} — ahora seleccioná ítems del Extracto (columna azul) hasta cubrir ese monto.`
+    barMsg = `Objetivo: ${fmtMonto(objetivo)} (${mayorItems.length} ítem${mayorItems.length > 1 ? 's' : ''} del Mayor) — ahora seleccioná ítems del Extracto (columna azul) hasta cubrir ese monto.`
     barMsgColor = '#92400e'
-  } else if (mayorItem && !balanced) {
+  } else if (mayorItems.length > 0 && !balanced) {
     barBg = '#fff7ed'; barBorder = '#f59e0b'
-    barMsg = `Objetivo: ${fmtMonto(mayorItem.monto)} — Cubierto: ${fmtMonto(covered)} — Falta: ${fmtMonto(remaining)}`
+    barMsg = `Objetivo: ${fmtMonto(objetivo)} — Cubierto: ${fmtMonto(covered)} — Falta: ${fmtMonto(remaining)}`
     barMsgColor = '#b45309'
   } else if (canCruzar) {
     barBg = '#f0fdf4'; barBorder = '#16a34a'
-    barMsg = `✓ Monto cubierto: ${fmtMonto(mayorItem.monto)} (${selExtractos.length} ítem${selExtractos.length > 1 ? 's' : ''} del Extracto). Hacé clic en Cruzar.`
+    barMsg = `✓ Monto cubierto: ${fmtMonto(objetivo)} (${mayorItems.length} ítem${mayorItems.length > 1 ? 's' : ''} del Mayor, ${selExtractos.length} ítem${selExtractos.length > 1 ? 's' : ''} del Extracto). Hacé clic en Cruzar.`
     barMsgColor = '#15803d'
   }
 
@@ -252,13 +306,22 @@ function PendingGroup({
         {/* Mayor column */}
         <div style={{ borderRight: '2px solid #f1f5f9' }}>
           <ColHeader side="mayor" title={titleMayor} description={descMayor} count={colMayor.length} />
+          {colMayor.length > 0 && (
+            <ItemSearchBar
+              value={buscarMayor} onChange={setBuscarMayor}
+              count={filtradosMayor.length} sum={sumaFiltradosMayor}
+              onSelectAll={() => onSelectAllMayor(filtradosMayor.map(x => x.id))}
+            />
+          )}
           <div style={{ padding: '10px 12px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             {colMayor.length === 0
               ? <EmptyCol text="Sin pendientes en esta columna" />
-              : colMayor.map(item => (
+              : filtradosMayor.length === 0
+              ? <EmptyCol text="Sin resultados para la búsqueda" />
+              : filtradosMayor.map(item => (
                   <ItemRow key={item.id} item={item} side="mayor"
-                    selected={selMayor === item.id}
-                    onClick={onSelMayor}
+                    selected={selMayores.includes(item.id)}
+                    onClick={onToggleMayor}
                   />
                 ))
             }
@@ -268,18 +331,28 @@ function PendingGroup({
         {/* Extracto column */}
         <div>
           <ColHeader side="extracto" title={titleExtracto} description={descExtracto} count={colExtracto.length} />
+          {colExtracto.length > 0 && (
+            <ItemSearchBar
+              value={buscarExtracto} onChange={setBuscarExtracto}
+              count={filtradosExtracto.length} sum={sumaFiltradosExtracto}
+              disabled={selMayores.length === 0 || filtradosExtracto.length === 0}
+              onSelectAll={() => onSelectAllExtracto(filtradosExtracto.map(x => x.id))}
+            />
+          )}
           <div style={{ padding: '10px 12px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             {colExtracto.length === 0
               ? <EmptyCol text="Sin pendientes en esta columna" />
-              : colExtracto.map(item => (
+              : filtradosExtracto.length === 0
+              ? <EmptyCol text="Sin resultados para la búsqueda" />
+              : filtradosExtracto.map(item => (
                   <ItemRow key={item.id} item={item} side="extracto"
                     selected={selExtractos.includes(item.id)}
-                    disabled={!selMayor}
+                    disabled={selMayores.length === 0}
                     onClick={onToggleExtracto}
                   />
                 ))
             }
-            {!selMayor && colExtracto.length > 0 && (
+            {selMayores.length === 0 && colExtracto.length > 0 && (
               <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', marginTop: 6, fontStyle: 'italic' }}>
                 Seleccioná primero un ítem del Mayor para habilitar esta columna
               </div>
@@ -293,11 +366,15 @@ function PendingGroup({
 
 // ── Ajuste de Saldo Contable ──────────────────────────────────────────────────
 
+// Efecto de cada categoría sobre el Saldo Contable cuando el pendiente se
+// escribe de baja como error de un mes anterior (no una transacción a cruzar):
+// un Débito no Contabilizado / No Acreditado resta, un No Debitado en Extracto /
+// Crédito no Contabilizado suma.
 const CATEGORIAS_AJUSTE = [
-  { key: 'col1', label: 'Débitos no Contabilizados',  sign:  1 },
-  { key: 'col2', label: 'No Debitados en Extracto',    sign: -1 },
-  { key: 'col3', label: 'No Acreditados',              sign:  1 },
-  { key: 'col4', label: 'Créditos no Contabilizados',  sign: -1 },
+  { key: 'col1', label: 'Débitos no Contabilizados',  sign: -1 },
+  { key: 'col2', label: 'No Debitados en Extracto',    sign:  1 },
+  { key: 'col3', label: 'No Acreditados',              sign: -1 },
+  { key: 'col4', label: 'Créditos no Contabilizados',  sign:  1 },
 ]
 
 function AjusteItemRow({ item, selected, onClick }) {
@@ -305,7 +382,7 @@ function AjusteItemRow({ item, selected, onClick }) {
     <div
       onClick={() => onClick(item.id)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 8,
+        display: 'flex', alignItems: 'flex-start', gap: 8,
         padding: '8px 10px', borderRadius: 7, marginBottom: 4,
         cursor: 'pointer',
         background: selected ? '#ede9fe' : item.mes_anterior ? '#fff7ed' : '#fff',
@@ -315,7 +392,7 @@ function AjusteItemRow({ item, selected, onClick }) {
       }}
     >
       <div style={{
-        width: 16, height: 16, borderRadius: 3,
+        width: 16, height: 16, borderRadius: 3, marginTop: 1,
         border: `2px solid ${selected ? '#7c3aed' : '#cbd5e1'}`,
         background: selected ? '#7c3aed' : 'transparent',
         flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -326,11 +403,18 @@ function AjusteItemRow({ item, selected, onClick }) {
         fontSize: 9, fontWeight: 800, borderRadius: 3, padding: '1px 5px', flexShrink: 0,
         color: '#6d28d9', background: '#ede9fe',
       }}>{item.categoriaLabel}</span>
-      <span style={{ fontSize: 10, color: '#94a3b8', width: 52, flexShrink: 0 }}>
+      <span style={{ fontSize: 10, color: '#94a3b8', width: 52, flexShrink: 0, marginTop: 1 }}>
         {fmtFecha(item.fecha)}
       </span>
-      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>
+      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflowWrap: 'break-word', whiteSpace: 'normal', color: '#1e293b', lineHeight: 1.4 }}>
         {item.descripcion || '—'}
+      </span>
+      <span style={{
+        fontSize: 9, fontWeight: 800, borderRadius: 3, padding: '1px 5px', flexShrink: 0,
+        color: item.sign > 0 ? '#15803d' : '#dc2626',
+        background: item.sign > 0 ? '#dcfce7' : '#fee2e2',
+      }}>
+        {item.sign > 0 ? '+' : '−'} saldo
       </span>
       <span style={{ fontSize: 13, fontWeight: 800, color: '#0d1b4b', flexShrink: 0, marginLeft: 4 }}>
         {fmtMonto(item.monto)}
@@ -363,48 +447,41 @@ function AjusteCard({ ajuste, onDeshacer }) {
   )
 }
 
-function AjusteSaldoSection({ cols, ajustes, onAplicar, onDeshacer }) {
-  const [monto, setMonto]   = useState('')
-  const [motivo, setMotivo] = useState('')
-  const [selIds, setSelIds] = useState([])
-
-  const montoNum    = parseFloat(String(monto).replace(',', '.'))
-  const montoValido = !isNaN(montoNum) && montoNum !== 0
+function AjusteSaldoSection({ cols, saldoActual, ajustes, onAplicar, onDeshacer }) {
+  const [motivo, setMotivo]   = useState('')
+  const [selIds, setSelIds]   = useState([])
+  const [buscar, setBuscar]   = useState('')
 
   const allItems = useMemo(() => CATEGORIAS_AJUSTE.flatMap(cat =>
     cols[cat.key].map(item => ({ ...item, categoria: cat.key, categoriaLabel: cat.label, sign: cat.sign }))
   ), [cols])
 
+  const filtrados     = useMemo(() => filterByDescripcion(allItems, buscar), [allItems, buscar])
+  const sumaFiltrados  = round2(filtrados.reduce((s, x) => s + x.monto, 0))
+
   function toggle(id) {
     setSelIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
   }
 
-  const target    = montoValido ? round2(-montoNum) : null
-  const covered   = round2(selIds.reduce((sum, id) => {
-    const item = allItems.find(x => x.id === id)
-    return sum + (item ? item.sign * item.monto : 0)
-  }, 0))
-  const remaining = target !== null ? round2(target - covered) : null
-  const balanced  = remaining !== null && Math.abs(remaining) < 0.02
-  const canAplicar = montoValido && selIds.length > 0 && balanced
+  function seleccionarTodoFiltrado() {
+    setSelIds(p => Array.from(new Set([...p, ...filtrados.map(x => x.id)])))
+  }
+
+  const selectedItems = allItems.filter(x => selIds.includes(x.id))
+  const delta         = round2(selectedItems.reduce((sum, x) => sum + x.sign * x.monto, 0))
+  const nuevoSaldo     = round2(saldoActual + delta)
+  const canAplicar     = selIds.length > 0
 
   let barBg = '#fafafa', barBorder = '#f1f5f9', barMsgColor = '#94a3b8'
-  let barMsg = 'Ingresá el monto y motivo del ajuste, y tildá los pendientes que ese ajuste explica.'
-  if (montoValido && selIds.length === 0) {
-    barBg = '#fff7ed'; barBorder = '#fed7aa'; barMsgColor = '#92400e'
-    barMsg = `Objetivo: ${fmtMonto(target)} — tildá pendientes (de cualquier columna) hasta cubrir ese monto.`
-  } else if (montoValido && !balanced) {
-    barBg = '#fff7ed'; barBorder = '#f59e0b'; barMsgColor = '#b45309'
-    barMsg = `Objetivo: ${fmtMonto(target)} — Cubierto: ${fmtMonto(covered)} — Falta: ${fmtMonto(remaining)}`
-  } else if (canAplicar) {
+  let barMsg = 'Tildá los pendientes que corresponden a errores de meses anteriores — el saldo contable se ajusta solo, según cómo tildes.'
+  if (canAplicar) {
     barBg = '#f0fdf4'; barBorder = '#16a34a'; barMsgColor = '#15803d'
-    barMsg = `✓ Cubierto: ${fmtMonto(covered)} (${selIds.length} ítem${selIds.length > 1 ? 's' : ''}). Hacé clic en Aplicar ajuste.`
+    barMsg = `Saldo actual: ${fmtMonto(saldoActual)} → Saldo ajustado: ${fmtMonto(nuevoSaldo)} (${delta >= 0 ? '+' : ''}${fmtMonto(delta)}, ${selIds.length} ítem${selIds.length > 1 ? 's' : ''}). Hacé clic en Aplicar ajuste.`
   }
 
   function handleAplicar() {
-    const items = allItems.filter(x => selIds.includes(x.id))
-    onAplicar(round2(montoNum), motivo.trim(), items)
-    setMonto(''); setMotivo(''); setSelIds([])
+    onAplicar(delta, motivo.trim(), selectedItems)
+    setMotivo(''); setSelIds([])
   }
 
   return (
@@ -416,20 +493,13 @@ function AjusteSaldoSection({ cols, ajustes, onAplicar, onDeshacer }) {
       )}
 
       <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(13,27,75,0.07)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            placeholder="Monto del ajuste (ej: -5000)"
-            value={monto}
-            onChange={e => setMonto(e.target.value)}
-            style={{ flex: '0 0 200px', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13 }}
-          />
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9' }}>
           <input
             type="text"
             placeholder="Motivo (ej: corrección asiento duplicado marzo)"
             value={motivo}
             onChange={e => setMotivo(e.target.value)}
-            style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13 }}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }}
           />
         </div>
 
@@ -453,10 +523,20 @@ function AjusteSaldoSection({ cols, ajustes, onAplicar, onDeshacer }) {
           </button>
         </div>
 
+        {allItems.length > 0 && (
+          <ItemSearchBar
+            value={buscar} onChange={setBuscar}
+            count={filtrados.length} sum={sumaFiltrados}
+            onSelectAll={seleccionarTodoFiltrado}
+          />
+        )}
+
         <div style={{ padding: '10px 12px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {allItems.length === 0
             ? <EmptyCol text="No hay pendientes para ajustar." />
-            : allItems.map(item => (
+            : filtrados.length === 0
+            ? <EmptyCol text="Sin resultados para la búsqueda" />
+            : filtrados.map(item => (
                 <AjusteItemRow key={item.id} item={item}
                   selected={selIds.includes(item.id)}
                   onClick={toggle}
@@ -480,15 +560,17 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
   const [matchedHD, setMatchedHD] = useState(() => normalizePairs(previewData.matched_haber_debito))
   const [matchedDC, setMatchedDC] = useState(() => normalizePairs(previewData.matched_debe_credito))
 
-  const [ajustes, setAjustes] = useState([])  // { id, monto, motivo, items: [{...item, categoria}] }
+  // Al editar una conciliación ya guardada, previewData trae los ajustes aplicados;
+  // al partir de una preview nueva, arranca vacío.
+  const [ajustes, setAjustes] = useState(previewData.ajustes ?? [])  // { id, monto, motivo, items: [{...item, categoria}] }
 
-  // HABER/DÉBITO selections: 1 Mayor + N Extracto
-  const [selHaber,   setSelHaber]   = useState(null)  // col2 id
-  const [selDebitos, setSelDebitos] = useState([])    // col1 ids
+  // HABER/DÉBITO selections: N Mayor + N Extracto
+  const [selHaberes, setSelHaberes] = useState([])   // col2 ids
+  const [selDebitos, setSelDebitos] = useState([])   // col1 ids
 
-  // DEBE/CRÉDITO selections: 1 Mayor + N Extracto
-  const [selDebe,     setSelDebe]     = useState(null) // col3 id
-  const [selCreditos, setSelCreditos] = useState([])   // col4 ids
+  // DEBE/CRÉDITO selections: N Mayor + N Extracto
+  const [selDebes,    setSelDebes]    = useState([])  // col3 ids
+  const [selCreditos, setSelCreditos] = useState([])  // col4 ids
 
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
@@ -509,53 +591,67 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  function selectHaber(id) {
-    const next = selHaber === id ? null : id
-    setSelHaber(next)
-    setSelDebitos([])  // clear extracto selections when mayor changes
+  function toggleHaber(id) {
+    setSelHaberes(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  }
+
+  function selectAllHaber(ids) {
+    setSelHaberes(p => Array.from(new Set([...p, ...ids])))
   }
 
   function toggleDebito(id) {
-    if (!selHaber) return
+    if (selHaberes.length === 0) return
     setSelDebitos(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
   }
 
-  function selectDebe(id) {
-    const next = selDebe === id ? null : id
-    setSelDebe(next)
-    setSelCreditos([])
+  function selectAllDebitos(ids) {
+    if (selHaberes.length === 0) return
+    setSelDebitos(p => Array.from(new Set([...p, ...ids])))
+  }
+
+  function toggleDebe(id) {
+    setSelDebes(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  }
+
+  function selectAllDebe(ids) {
+    setSelDebes(p => Array.from(new Set([...p, ...ids])))
   }
 
   function toggleCredito(id) {
-    if (!selDebe) return
+    if (selDebes.length === 0) return
     setSelCreditos(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
   }
 
+  function selectAllCreditos(ids) {
+    if (selDebes.length === 0) return
+    setSelCreditos(p => Array.from(new Set([...p, ...ids])))
+  }
+
   function cruzarHD() {
-    const mayor = col2.find(x => x.id === selHaber)
-    const exts  = col1.filter(x => selDebitos.includes(x.id))
-    if (!mayor || exts.length === 0) return
-    setMatchedHD(p => [...p, { id: crypto.randomUUID(), mayor, extractos: exts }])
-    setCol2(p => p.filter(x => x.id !== selHaber))
+    const mayores = col2.filter(x => selHaberes.includes(x.id))
+    const exts    = col1.filter(x => selDebitos.includes(x.id))
+    if (mayores.length === 0 || exts.length === 0) return
+    setMatchedHD(p => [...p, { id: crypto.randomUUID(), mayores, extractos: exts }])
+    setCol2(p => p.filter(x => !selHaberes.includes(x.id)))
     setCol1(p => p.filter(x => !selDebitos.includes(x.id)))
-    setSelHaber(null); setSelDebitos([])
+    setSelHaberes([]); setSelDebitos([])
   }
 
   function cruzarDC() {
-    const mayor = col3.find(x => x.id === selDebe)
-    const exts  = col4.filter(x => selCreditos.includes(x.id))
-    if (!mayor || exts.length === 0) return
-    setMatchedDC(p => [...p, { id: crypto.randomUUID(), mayor, extractos: exts }])
-    setCol3(p => p.filter(x => x.id !== selDebe))
+    const mayores = col3.filter(x => selDebes.includes(x.id))
+    const exts    = col4.filter(x => selCreditos.includes(x.id))
+    if (mayores.length === 0 || exts.length === 0) return
+    setMatchedDC(p => [...p, { id: crypto.randomUUID(), mayores, extractos: exts }])
+    setCol3(p => p.filter(x => !selDebes.includes(x.id)))
     setCol4(p => p.filter(x => !selCreditos.includes(x.id)))
-    setSelDebe(null); setSelCreditos([])
+    setSelDebes([]); setSelCreditos([])
   }
 
   function descruzarHD(pairId) {
     const par = matchedHD.find(p => p.id === pairId)
     if (!par) return
     setMatchedHD(p => p.filter(x => x.id !== pairId))
-    setCol2(p => [...p, par.mayor])
+    setCol2(p => [...p, ...par.mayores])
     setCol1(p => [...p, ...par.extractos])
   }
 
@@ -563,7 +659,7 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
     const par = matchedDC.find(p => p.id === pairId)
     if (!par) return
     setMatchedDC(p => p.filter(x => x.id !== pairId))
-    setCol3(p => [...p, par.mayor])
+    setCol3(p => [...p, ...par.mayores])
     setCol4(p => [...p, ...par.extractos])
   }
 
@@ -713,10 +809,11 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
         <SectionHeader
           step="2"
           title="Ajuste de saldo contable"
-          description="Si la diferencia viene de un error de un mes anterior (no de una transacción real que cruzar), ingresá el ajuste y tildá los pendientes que ese error explica — sin necesidad de buscarles pareja del otro lado."
+          description="Si la diferencia viene de un error de un mes anterior (no de una transacción real que cruzar), tildá el o los pendientes que explican ese error — el saldo contable se ajusta solo según la categoría de cada uno, sin necesidad de buscarles pareja del otro lado."
         />
         <AjusteSaldoSection
           cols={{ col1, col2, col3, col4 }}
+          saldoActual={saldoContableAjustado}
           ajustes={ajustes}
           onAplicar={aplicarAjuste}
           onDeshacer={deshacerAjuste}
@@ -728,7 +825,7 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
         <SectionHeader
           step="3"
           title="Completar cruces pendientes"
-          description="Seleccioná 1 ítem del Mayor (verde) para fijar el monto objetivo. Luego seleccioná uno o más ítems del Extracto (azul) hasta cubrir ese monto. Cuando cuadre, presioná Cruzar."
+          description="Seleccioná uno o más ítems del Mayor (verde) para fijar el monto objetivo. Luego seleccioná uno o más ítems del Extracto (azul) hasta cubrir ese monto. Cuando cuadre, presioná Cruzar."
         />
 
         <PendingGroup
@@ -738,10 +835,12 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
           descExtracto="Débito en el Extracto, pero no está en el Mayor contable."
           colMayor={col2}
           colExtracto={col1}
-          selMayor={selHaber}
+          selMayores={selHaberes}
           selExtractos={selDebitos}
-          onSelMayor={selectHaber}
+          onToggleMayor={toggleHaber}
           onToggleExtracto={toggleDebito}
+          onSelectAllMayor={selectAllHaber}
+          onSelectAllExtracto={selectAllDebitos}
           onCruzar={cruzarHD}
         />
 
@@ -752,10 +851,12 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
           descExtracto="Crédito en el Extracto, pero no está en el Mayor contable."
           colMayor={col3}
           colExtracto={col4}
-          selMayor={selDebe}
+          selMayores={selDebes}
           selExtractos={selCreditos}
-          onSelMayor={selectDebe}
+          onToggleMayor={toggleDebe}
           onToggleExtracto={toggleCredito}
+          onSelectAllMayor={selectAllDebe}
+          onSelectAllExtracto={selectAllCreditos}
           onCruzar={cruzarDC}
         />
       </div>
