@@ -14,9 +14,16 @@ def _match_lists(a_items: list[dict], b_items: list[dict]) -> tuple[list, list, 
     """
     Match items from a against items from b by monto.
 
-    Phase 1 — 1-to-1: exact monto match, date-proximity tiebreaker.
-    Phase 2 — 1-to-many: for still-unmatched a items, find a subset of
-               remaining b items whose sum equals a's monto.
+    Phase 1 — 1-to-1: exact monto match; date is NOT a filter, only a
+               tiebreaker (closest date wins) when several b items share
+               the same monto. Items with equal monto but very different
+               dates still match (e.g. a check deposited days after being
+               recorded) — see DATE_WINDOW_DAYS.
+    Phase 2 — keyword-based group match: known non-amount-matching cases
+               (e.g. bank tax withholdings) grouped by description keyword
+               regardless of individual montos. General 1-to-many subset-sum
+               matching (N mayor items ↔ 1 extracto item or vice versa) is
+               NOT automatic — it's done manually in the review UI (Cruzar).
 
     Returns (matched_pairs, unmatched_a, unmatched_b).
     Each matched pair is (a_item, [b_item, ...]).
