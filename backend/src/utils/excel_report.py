@@ -273,22 +273,25 @@ def _write_verification_table(
         ws.cell(row=start_row, column=1, value="— Sin pares conciliados —").font = _font(color="888888")
         return start_row + 1, None
 
-    for i, (mayor_item, extracto_items) in enumerate(pairs):
-        from_anterior = mayor_item.get("mes_anterior") or any(
+    for i, (mayor_items, extracto_items) in enumerate(pairs):
+        from_anterior = any(m.get("mes_anterior") for m in mayor_items) or any(
             e.get("mes_anterior") for e in extracto_items
         )
         bg     = _ORANGE if from_anterior else (_GREY_LIGHT if i % 2 == 0 else _WHITE)
         fuente = "Mes anterior" if from_anterior else "Mes actual"
 
-        for j, ext in enumerate(extracto_items):
+        max_j = max(len(mayor_items), len(extracto_items))
+        for j in range(max_j):
+            m = mayor_items[j] if j < len(mayor_items) else None
+            ext = extracto_items[j] if j < len(extracto_items) else None
             row_vals = [
-                (_fmt_date(mayor_item)       if j == 0 else None),
-                (mayor_item["descripcion"]   if j == 0 else None),
-                (mayor_item["monto"]         if j == 0 else None),
-                _fmt_date(ext),
-                ext["descripcion"],
-                ext["monto"],
-                (fuente                      if j == 0 else None),
+                (_fmt_date(m)     if m else None),
+                (m["descripcion"] if m else None),
+                (m["monto"]       if m else None),
+                (_fmt_date(ext)     if ext else None),
+                (ext["descripcion"] if ext else None),
+                (ext["monto"]       if ext else None),
+                (fuente if j == 0 else None),
             ]
             _write_data_row(ws, start_row, row_vals, bg)
             start_row += 1

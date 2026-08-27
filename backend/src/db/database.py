@@ -26,3 +26,18 @@ def get_db():
 def init_db():
     from db.models import Conciliacion  # noqa: F401 — registers the model
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns():
+    """Lightweight additive migration — no Alembic in this project. Only ever
+    ADDs nullable columns that create_all() can't add to a pre-existing table."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "conciliaciones" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("conciliaciones")}
+    if "estado_editable" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE conciliaciones ADD COLUMN estado_editable JSON"))

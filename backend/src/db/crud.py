@@ -52,7 +52,13 @@ def _deserialize_items(items: list[dict]) -> list[dict]:
     return result
 
 
-def save_conciliacion(db: Session, result: dict, banco_id: str | None = None, excel_bytes: bytes | None = None) -> Conciliacion:
+def save_conciliacion(
+    db: Session,
+    result: dict,
+    banco_id: str | None = None,
+    excel_bytes: bytes | None = None,
+    estado_editable: dict | None = None,
+) -> Conciliacion:
     estado = "balanceada" if abs(result.get("diferencia") or 0) < 0.02 else "con_diferencias"
 
     row = Conciliacion(
@@ -80,6 +86,7 @@ def save_conciliacion(db: Session, result: dict, banco_id: str | None = None, ex
             "saldo_contable_original": result.get("saldo_contable_original"),
         },
         excel_output        = excel_bytes,
+        estado_editable     = estado_editable,
         partidas_pendientes = {
             "col1": _serialize_items(result.get("col1", [])),
             "col2": _serialize_items(result.get("col2", [])),

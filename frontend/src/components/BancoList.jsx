@@ -4,7 +4,7 @@ const ESTADO = {
   default:         { bg: '#f1f5f9', color: '#94a3b8', label: 'Sin conciliación', border: '#e2e8f0' },
 }
 
-function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
+function BancoCard({ banco, onSelect, onDelete, onGestionar, onEditar }) {
   const ult = banco.ultima_conciliacion
   const st  = ESTADO[ult?.estado] ?? ESTADO.default
 
@@ -110,6 +110,21 @@ function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
             ⬇ Última
           </a>
         )}
+        {banco.ultima_conciliacion && (
+          <button
+            onClick={() => onEditar(banco)}
+            title="Editar la última conciliación guardada"
+            className="btn-secondary"
+            style={{
+              background: '#f8fafc', color: '#7c3aed',
+              border: '1px solid #e2e8f0',
+              borderRadius: 8, padding: '9px 14px', fontSize: 12, fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ✎ Editar
+          </button>
+        )}
         <button
           onClick={() => onGestionar(banco)}
           title="Ver y gestionar las partidas pendientes del mes anterior"
@@ -151,7 +166,7 @@ function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
   )
 }
 
-export default function BancoList({ bancos, loading, onSelect, onDelete, onAddClick, onGestionar }) {
+export default function BancoList({ bancos, loading, onSelect, onDelete, onAddClick, onGestionar, onEditar }) {
   return (
     <div>
       <div style={{
@@ -207,7 +222,7 @@ export default function BancoList({ bancos, loading, onSelect, onDelete, onAddCl
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {bancos.map(b => (
-            <BancoCard key={b.id} banco={b} onSelect={onSelect} onDelete={onDelete} onGestionar={onGestionar} />
+            <BancoCard key={b.id} banco={b} onSelect={onSelect} onDelete={onDelete} onGestionar={onGestionar} onEditar={onEditar} />
           ))}
         </div>
       )}

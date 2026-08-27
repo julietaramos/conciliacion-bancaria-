@@ -159,9 +159,9 @@ def _result_from_state(state: dict) -> dict:
     def _expand_pairs(raw_pairs):
         result = []
         for p in raw_pairs:
-            mayor = _item_to_internal(p["mayor"])
+            mayores = p.get("mayores") or ([p["mayor"]] if p.get("mayor") else [])
             extractos = p.get("extractos") or ([p["extracto"]] if p.get("extracto") else [])
-            result.append((mayor, [_item_to_internal(e) for e in extractos]))
+            result.append(([_item_to_internal(m) for m in mayores], [_item_to_internal(e) for e in extractos]))
         return result
 
     matched_hd = _expand_pairs(state.get("matched_haber_debito", []))
@@ -356,13 +356,23 @@ async def generar_endpoint(
 
     result      = await asyncio.to_thread(_result_from_state, body)
     excel_bytes = await asyncio.to_thread(generate_excel_report, result)
-    await asyncio.to_thread(save_conciliacion, db, result, banco_id, excel_bytes)
+    await asyncio.to_thread(save_conciliacion, db, result, banco_id, excel_bytes, estado_editable=body)
 
     return Response(
         content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=conciliacion.xlsx"},
     )
+
+
+# ── Editar última conciliación ──────────────────────────────────────────────────
+
+@app.get("/api/bancos/{banco_id}/ultima/editar")
+def obtener_ultima_editable(banco_id: str, db: Session = Depends(get_db)):
+    ultima = get_ultima_conciliacion(db, banco_id)
+    if not ultima or not ultima.estado_editable:
+        raise HTTPException(404, "No hay una conciliación editable guardada para este banco.")
+    return ultima.estado_editable
 
 
 # ── Descarga última conciliación ──────────────────────────────────────────────

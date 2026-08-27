@@ -42,6 +42,7 @@ class Conciliacion(Base):
     estado              = Column(String(30), default="completada")
     resumen             = Column(JSON, nullable=True)
     partidas_pendientes = Column(JSON, nullable=True)
+    estado_editable     = Column(JSON, nullable=True)  # payload completo de /conciliar/generar, para reabrir el editor
     excel_output        = Column(LargeBinary, nullable=True)
 
     banco = relationship("Banco", back_populates="conciliaciones")
