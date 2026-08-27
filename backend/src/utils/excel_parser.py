@@ -81,9 +81,9 @@ def parse_mayor(file_bytes: bytes, filename: str) -> dict:
         desc  = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] is not None else ""
         debe  = _to_float(row[debe_col])
         haber = _to_float(row[haber_col])
-        saldo = _to_float(row[saldo_col]) if saldo_col is not None and row[saldo_col] is not None else 0.0
+        saldo = _to_signed_float(row[saldo_col]) if saldo_col is not None and row[saldo_col] is not None else None
 
-        if saldo > 0:
+        if saldo is not None:
             saldo_final = saldo
 
         if debe > 0:
