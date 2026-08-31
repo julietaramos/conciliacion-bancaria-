@@ -1,17 +1,19 @@
 import { useState, useRef } from 'react'
 
-function ActionCard({ icon, title, description, onClick }) {
+function ActionCard({ icon, title, description, onClick, disabled }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         width: '100%', textAlign: 'left', background: '#fff',
         border: '2px solid #e2e8f0', borderRadius: 10,
-        padding: '16px 18px', cursor: 'pointer', marginBottom: 10,
+        padding: '16px 18px', cursor: disabled ? 'default' : 'pointer', marginBottom: 10,
+        opacity: disabled ? 0.6 : 1,
         display: 'flex', alignItems: 'flex-start', gap: 14,
         transition: 'border-color 0.15s, background 0.15s',
       }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = '#2563eb'; e.currentTarget.style.background = '#f8fafc' }}
+      onMouseEnter={e => { if (!disabled) { e.currentTarget.style.borderColor = '#2563eb'; e.currentTarget.style.background = '#f8fafc' } }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff' }}
     >
       <span style={{ fontSize: 22, flexShrink: 0, lineHeight: 1 }}>{icon}</span>
@@ -24,15 +26,28 @@ function ActionCard({ icon, title, description, onClick }) {
   )
 }
 
-export default function GestionarAnteriorModal({ banco, onClose, onDone }) {
+export default function GestionarAnteriorModal({ banco, onClose, onDone, onEditar }) {
   const [view,    setView]    = useState('menu')   // 'menu' | 'borrar' | 'reemplazar'
   const [archivo, setArchivo] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
   const [ok,      setOk]      = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError,   setEditError]   = useState(null)
   const inputRef = useRef()
 
   const tieneAnterior = !!banco.ultima_conciliacion
+
+  async function handleEditarClick() {
+    setEditLoading(true); setEditError(null)
+    try {
+      await onEditar(banco)
+    } catch (e) {
+      setEditError(e.message)
+    } finally {
+      setEditLoading(false)
+    }
+  }
 
   async function handleBorrar() {
     setLoading(true); setError(null)
@@ -125,6 +140,21 @@ export default function GestionarAnteriorModal({ banco, onClose, onDone }) {
                     : ' Este banco no tiene partidas guardadas actualmente.'}
                 </span>
               </div>
+
+              <ActionCard
+                icon="✎"
+                title={editLoading ? 'Abriendo...' : 'Editar última conciliación'}
+                description={tieneAnterior
+                  ? 'Reabre la última conciliación guardada en el editor de revisión, con sus cruces, ajustes y pendientes, sin volver a subir los Excel.'
+                  : 'Todavía no hay ninguna conciliación guardada para editar.'}
+                onClick={handleEditarClick}
+                disabled={editLoading}
+              />
+              {editError && (
+                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
+                  {editError}
+                </div>
+              )}
 
               <ActionCard
                 icon="🗑️"

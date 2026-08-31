@@ -12,7 +12,6 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
   const [previewData,   setPreviewData]   = useState(null)      // null | data
   const [showAddModal,  setShowAddModal]  = useState(false)
   const [gestionarBanco, setGestionarBanco] = useState(null)    // banco | null
-  const [editError, setEditError] = useState(null)
 
   useEffect(() => {
     if (initialBanco) { setSelectedBanco(initialBanco); onClearInitial?.() }
@@ -48,19 +47,15 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
   }
 
   async function handleEditar(banco) {
-    setEditError(null)
-    try {
-      const res = await fetch(`/api/bancos/${banco.id}/ultima/editar`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `Error ${res.status}`)
-      }
-      const data = await res.json()
-      setSelectedBanco(banco)
-      setPreviewData(data)
-    } catch (err) {
-      setEditError(err.message)
+    const res = await fetch(`/api/bancos/${banco.id}/ultima/editar`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `Error ${res.status}`)
     }
+    const data = await res.json()
+    setGestionarBanco(null)
+    setSelectedBanco(banco)
+    setPreviewData(data)
   }
 
   function handleVolver() {
@@ -113,22 +108,14 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
       )}
 
       {view === 'list' && (
-        <>
-          {editError && (
-            <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>
-              {editError}
-            </div>
-          )}
-          <BancoList
-            bancos={bancos}
-            loading={loading}
-            onSelect={setSelectedBanco}
-            onDelete={handleDeleteBanco}
-            onAddClick={() => setShowAddModal(true)}
-            onGestionar={setGestionarBanco}
-            onEditar={handleEditar}
-          />
-        </>
+        <BancoList
+          bancos={bancos}
+          loading={loading}
+          onSelect={setSelectedBanco}
+          onDelete={handleDeleteBanco}
+          onAddClick={() => setShowAddModal(true)}
+          onGestionar={setGestionarBanco}
+        />
       )}
 
       {view === 'upload' && (
@@ -160,6 +147,7 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
           banco={gestionarBanco}
           onClose={() => setGestionarBanco(null)}
           onDone={fetchBancos}
+          onEditar={handleEditar}
         />
       )}
     </>
