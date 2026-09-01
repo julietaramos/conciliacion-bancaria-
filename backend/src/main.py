@@ -149,23 +149,23 @@ def _ajustes_to_internal(raw_ajustes: list) -> list:
     return result
 
 
+def _match_to_internal(m: dict) -> dict:
+    return {
+        "id":   m.get("id"),
+        "col1": [_item_to_internal(x) for x in m.get("col1", [])],
+        "col2": [_item_to_internal(x) for x in m.get("col2", [])],
+        "col3": [_item_to_internal(x) for x in m.get("col3", [])],
+        "col4": [_item_to_internal(x) for x in m.get("col4", [])],
+    }
+
+
 def _result_from_state(state: dict) -> dict:
     col1 = [_item_to_internal(x) for x in state.get("col1", [])]
     col2 = [_item_to_internal(x) for x in state.get("col2", [])]
     col3 = [_item_to_internal(x) for x in state.get("col3", [])]
     col4 = [_item_to_internal(x) for x in state.get("col4", [])]
     ajustes = _ajustes_to_internal(state.get("ajustes", []))
-
-    def _expand_pairs(raw_pairs):
-        result = []
-        for p in raw_pairs:
-            mayores = p.get("mayores") or ([p["mayor"]] if p.get("mayor") else [])
-            extractos = p.get("extractos") or ([p["extracto"]] if p.get("extracto") else [])
-            result.append(([_item_to_internal(m) for m in mayores], [_item_to_internal(e) for e in extractos]))
-        return result
-
-    matched_hd = _expand_pairs(state.get("matched_haber_debito", []))
-    matched_dc = _expand_pairs(state.get("matched_debe_credito", []))
+    matched = [_match_to_internal(m) for m in state.get("matched", [])]
 
     partidas = round(
         sum(x["monto"] for x in col1)
@@ -191,8 +191,7 @@ def _result_from_state(state: dict) -> dict:
 
     return {
         "col1": col1, "col2": col2, "col3": col3, "col4": col4,
-        "matched_haber_debito": matched_hd,
-        "matched_debe_credito": matched_dc,
+        "matched":                  matched,
         "ajustes":                 ajustes,
         "saldo_banco":             saldo_banco,
         "saldo_contable":          saldo_contable,

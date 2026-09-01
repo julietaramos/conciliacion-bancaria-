@@ -52,6 +52,9 @@ def _deserialize_items(items: list[dict]) -> list[dict]:
     return result
 
 
+TOLERANCIA_DIFERENCIA = 100  # margen aceptado entre saldo banco y saldo contable
+
+
 def save_conciliacion(
     db: Session,
     result: dict,
@@ -59,7 +62,7 @@ def save_conciliacion(
     excel_bytes: bytes | None = None,
     estado_editable: dict | None = None,
 ) -> Conciliacion:
-    estado = "balanceada" if abs(result.get("diferencia") or 0) < 0.02 else "con_diferencias"
+    estado = "balanceada" if abs(result.get("diferencia") or 0) < TOLERANCIA_DIFERENCIA else "con_diferencias"
 
     row = Conciliacion(
         banco_id   = banco_id,
@@ -73,8 +76,7 @@ def save_conciliacion(
             "haber_no_debitados":   len(result.get("col2", [])),
             "no_acreditados":       len(result.get("col3", [])),
             "creditos_no_contab":   len(result.get("col4", [])),
-            "matched_haber_debito": len(result.get("matched_haber_debito", [])),
-            "matched_debe_credito": len(result.get("matched_debe_credito", [])),
+            "cruces_confirmados":   len(result.get("matched", [])),
             "ajustes": [
                 {
                     "monto":  a["monto"],

@@ -6,6 +6,7 @@ export default function Layout({ page, onNavigate, children }) {
       <Sidebar page={page} onNavigate={onNavigate} />
       <main style={{
         flex: 1,
+        height: '100vh',
         padding: '40px 48px',
         overflowY: 'auto',
         minWidth: 0,

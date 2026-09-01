@@ -96,8 +96,7 @@ def generate_excel_report(result: dict) -> bytes:
     col2 = result["col2"]   # mayor   HABER    unmatched
     col3 = result["col3"]   # mayor   DEBE     unmatched
     col4 = result["col4"]   # extracto CRÉDITO unmatched
-    matched_hd = result["matched_haber_debito"]
-    matched_dc = result["matched_debe_credito"]
+    matched = result["matched"]  # cruces confirmados, cada uno con ítems de cualquiera de las 4 columnas
 
     # ── Column widths ───────────────────────────────────────────────────────────
     widths = {
@@ -191,31 +190,12 @@ def generate_excel_report(result: dict) -> bytes:
     _add_table(ws, "NoAcreditados",            f"H7:J{last_pending_row}")
     _add_table(ws, "CreditosNoContabilizados", f"K7:M{last_pending_row}")
 
-    # ── Verification tables ─────────────────────────────────────────────────────
-    # "Abajo" (tildado): pares conciliados — también con filtro propio por tabla.
+    # ── Verification table ──────────────────────────────────────────────────────
+    # "Abajo" (tildado): cruces conciliados — cada uno puede combinar ítems de
+    # cualquiera de las 4 columnas, así que se listan en el mismo layout de 4
+    # grupos que la sección de pendientes, una tabla por grupo.
     start_row = 8 + max_rows + 3
-
-    start_row, ref_hd = _write_verification_table(
-        ws, start_row,
-        title="✓ Conciliados: HABER (Mayor) ↔ DÉBITO (Extracto)",
-        header_a="MAYOR — Haber", header_b="EXTRACTO — Débito",
-        pairs=matched_hd,
-        bg_header=_YELLOW,
-    )
-    if ref_hd:
-        _add_table(ws, "ConciliadosHaberDebito", ref_hd)
-
-    start_row += 2
-
-    start_row, ref_dc = _write_verification_table(
-        ws, start_row,
-        title="✓ Conciliados: DEBE (Mayor) ↔ CRÉDITO (Extracto)",
-        header_a="MAYOR — Debe", header_b="EXTRACTO — Crédito",
-        pairs=matched_dc,
-        bg_header=_GREEN,
-    )
-    if ref_dc:
-        _add_table(ws, "ConciliadosDebeCredito", ref_dc)
+    start_row = _write_matched_table(ws, start_row, matched)
 
     # ── Ajustes de saldo contable (errores de meses anteriores) ────────────────
     ajustes = result.get("ajustes") or []
@@ -239,75 +219,82 @@ def generate_excel_report(result: dict) -> bytes:
 _ORANGE = "FFE0B2"  # highlight for previous-month items
 
 
-def _write_verification_table(
-    ws, start_row: int,
-    title: str,
-    header_a: str, header_b: str,
-    pairs: list,
-    bg_header: str,
-) -> tuple[int, str | None]:
-    """Write a pair verification table.
+def _write_matched_table(ws, start_row: int, matched: list) -> int:
+    """Write the confirmed-crosses table. A cross can combine items from any
+    of the 4 columns (not just a fixed Mayor/Extracto pair), so it's laid out
+    with the same 4-group shape as the pending section above. Returns the
+    next available row."""
 
-    Returns (next_available_row, table_ref). table_ref is None when there are
-    no pairs to show — an empty table has nothing to filter on.
-    """
-
-    c = ws.cell(row=start_row, column=1, value=title)
+    c = ws.cell(row=start_row, column=1, value="✓ Cruces Confirmados")
     c.font = _font(bold=True, size=11, color=_DARK_BLUE)
-    c.fill = _fill(bg_header)
-    c.alignment = _align("left")
+    c.fill = _fill(_YELLOW)
     for col in range(2, 14):
-        ws.cell(row=start_row, column=col).fill = _fill(bg_header)
+        ws.cell(row=start_row, column=col).fill = _fill(_YELLOW)
+    start_row += 1
+
+    group_row = start_row
+    group_labels = {
+        1: "Débito (Extracto)", 4: "Haber (Mayor)",
+        8: "Debe (Mayor)", 11: "Crédito (Extracto)",
+    }
+    _set_header_row(ws, group_row, group_labels, _DARK_BLUE, size=9)
     start_row += 1
 
     header_row = start_row
-    headers = {
-        1: "Fecha (Mayor)", 2: "Concepto (Mayor)", 3: "Monto (Mayor)",
-        4: "Fecha (Extracto)", 5: "Concepto (Extracto)", 6: "Monto (Extracto)",
-        7: "Fuente",
-    }
-    _set_header_row(ws, start_row, headers, _MED_BLUE, size=9)
+    sub = {1: "Fecha", 2: "Concepto", 3: "Importe",
+           4: "Fecha", 5: "Concepto", 6: "Importe",
+           8: "Fecha", 9: "Concepto", 10: "Importe",
+           11: "Fecha", 12: "Concepto", 13: "Importe"}
+    _set_header_row(ws, header_row, sub, _MED_BLUE, size=9)
     start_row += 1
 
-    if not pairs:
-        ws.cell(row=start_row, column=1, value="— Sin pares conciliados —").font = _font(color="888888")
-        return start_row + 1, None
+    if not matched:
+        ws.cell(row=start_row, column=1, value="— Sin cruces confirmados —").font = _font(color="888888")
+        return start_row + 1
 
-    for i, (mayor_items, extracto_items) in enumerate(pairs):
-        from_anterior = any(m.get("mes_anterior") for m in mayor_items) or any(
-            e.get("mes_anterior") for e in extracto_items
-        )
-        bg     = _ORANGE if from_anterior else (_GREY_LIGHT if i % 2 == 0 else _WHITE)
-        fuente = "Mes anterior" if from_anterior else "Mes actual"
+    def _item(lst, i):
+        return lst[i] if i < len(lst) else None
 
-        max_j = max(len(mayor_items), len(extracto_items))
+    for i, m in enumerate(matched):
+        c1, c2, c3, c4 = m.get("col1", []), m.get("col2", []), m.get("col3", []), m.get("col4", [])
+        any_anterior = any(x.get("mes_anterior") for grp in (c1, c2, c3, c4) for x in grp)
+        bg = _ORANGE if any_anterior else (_GREY_LIGHT if i % 2 == 0 else _WHITE)
+        max_j = max(len(c1), len(c2), len(c3), len(c4), 1)
         for j in range(max_j):
-            m = mayor_items[j] if j < len(mayor_items) else None
-            ext = extracto_items[j] if j < len(extracto_items) else None
+            a, b, cc, d = _item(c1, j), _item(c2, j), _item(c3, j), _item(c4, j)
             row_vals = [
-                (_fmt_date(m)     if m else None),
-                (m["descripcion"] if m else None),
-                (m["monto"]       if m else None),
-                (_fmt_date(ext)     if ext else None),
-                (ext["descripcion"] if ext else None),
-                (ext["monto"]       if ext else None),
-                (fuente if j == 0 else None),
+                _fmt_date(a) if a else None, a["descripcion"] if a else None, a["monto"] if a else None,
+                _fmt_date(b) if b else None, b["descripcion"] if b else None, b["monto"] if b else None,
+                None,
+                _fmt_date(cc) if cc else None, cc["descripcion"] if cc else None, cc["monto"] if cc else None,
+                _fmt_date(d) if d else None, d["descripcion"] if d else None, d["monto"] if d else None,
             ]
             _write_data_row(ws, start_row, row_vals, bg)
             start_row += 1
 
     last_data_row = start_row - 1
-    table_ref = f"A{header_row}:G{last_data_row}"
 
-    total_monto = sum(e["monto"] for _, exts in pairs for e in exts)
+    totals = {
+        3:  sum(x["monto"] for m in matched for x in m.get("col1", [])),
+        6:  sum(x["monto"] for m in matched for x in m.get("col2", [])),
+        10: sum(x["monto"] for m in matched for x in m.get("col3", [])),
+        13: sum(x["monto"] for m in matched for x in m.get("col4", [])),
+    }
     ws.cell(row=start_row, column=2, value="TOTAL").font = _font(bold=True)
-    t = ws.cell(row=start_row, column=3, value=total_monto)
-    t.number_format = _NUM_FMT
-    t.font = _font(bold=True)
-    t.alignment = _align("right")
-    t.fill = _fill(bg_header)
+    for col, total in totals.items():
+        t = ws.cell(row=start_row, column=col, value=total)
+        t.number_format = _NUM_FMT
+        t.font = _font(bold=True)
+        t.alignment = _align("right")
+        t.fill = _fill(_YELLOW)
+    start_row += 1
 
-    return start_row + 1, table_ref
+    _add_table(ws, "CrucesDebitoExtracto",  f"A{header_row}:C{last_data_row}")
+    _add_table(ws, "CrucesHaberMayor",      f"D{header_row}:F{last_data_row}")
+    _add_table(ws, "CrucesDebeMayor",       f"H{header_row}:J{last_data_row}")
+    _add_table(ws, "CrucesCreditoExtracto", f"K{header_row}:M{last_data_row}")
+
+    return start_row + 1
 
 
 _CATEGORIA_LABELS = {

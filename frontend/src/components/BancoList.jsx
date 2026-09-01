@@ -1,24 +1,67 @@
+import { useState, useMemo, useEffect } from 'react'
+
 const ESTADO = {
   balanceada:      { bg: '#dcfce7', color: '#16a34a', label: 'Balanceada',       border: '#16a34a' },
   con_diferencias: { bg: '#fff7ed', color: '#ea580c', label: 'Con diferencias',  border: '#ea580c' },
   default:         { bg: '#f1f5f9', color: '#94a3b8', label: 'Sin conciliación', border: '#e2e8f0' },
 }
 
-function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
+const TOLERANCIA_DIFERENCIA = 100
+const ORDEN_STORAGE_KEY = 'conciliaciones-bancarias:orden-bancos'
+
+function leerOrdenGuardado() {
+  try {
+    const raw = localStorage.getItem(ORDEN_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function guardarOrden(ids) {
+  try {
+    localStorage.setItem(ORDEN_STORAGE_KEY, JSON.stringify(ids))
+  } catch {
+    // localStorage no disponible (modo privado, cuota, etc.) — el orden simplemente no persiste
+  }
+}
+
+function BancoCard({ banco, onSelect, onDelete, onGestionar, editando, onDragStart, onDragOver, onDrop, onDragEnd, isDragging }) {
   const ult = banco.ultima_conciliacion
   const st  = ESTADO[ult?.estado] ?? ESTADO.default
 
   return (
-    <div className="banco-card" style={{
-      background: '#fff',
-      borderRadius: 12,
-      boxShadow: '0 1px 4px rgba(13,27,75,0.07)',
-      overflow: 'hidden',
-      borderLeft: `4px solid ${st.border}`,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 0,
-    }}>
+    <div
+      className="banco-card"
+      draggable={editando}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        boxShadow: '0 1px 4px rgba(13,27,75,0.07)',
+        overflow: 'hidden',
+        borderLeft: `4px solid ${st.border}`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0,
+        opacity: isDragging ? 0.4 : 1,
+      }}
+    >
+      {editando && (
+        <div
+          title="Arrastrá para reordenar"
+          style={{
+            alignSelf: 'stretch', display: 'flex', alignItems: 'center',
+            padding: '0 12px', color: '#94a3b8', fontSize: 16,
+            background: '#f8fafc', cursor: 'grab', flexShrink: 0,
+          }}
+        >
+          ⠿
+        </div>
+      )}
       <div style={{ padding: '20px 20px', display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
         <div style={{
           width: 44, height: 44, borderRadius: 10,
@@ -46,7 +89,7 @@ function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
                 {ult.diferencia != null && (
                   <span style={{
                     fontWeight: 700, fontSize: 13,
-                    color: Math.abs(ult.diferencia) < 0.02 ? '#16a34a' : '#ea580c',
+                    color: Math.abs(ult.diferencia) < TOLERANCIA_DIFERENCIA ? '#16a34a' : '#ea580c',
                   }}>
                     Dif: ${ult.diferencia.toFixed(2)}
                   </span>
@@ -152,6 +195,44 @@ function BancoCard({ banco, onSelect, onDelete, onGestionar }) {
 }
 
 export default function BancoList({ bancos, loading, onSelect, onDelete, onAddClick, onGestionar }) {
+  const [editando, setEditando]   = useState(false)
+  const [ordenIds, setOrdenIds]   = useState([])
+  const [draggedId, setDraggedId] = useState(null)
+
+  useEffect(() => {
+    const guardado     = leerOrdenGuardado()
+    const idsActuales   = bancos.map(b => b.id)
+    const conocidos     = guardado.filter(id => idsActuales.includes(id))
+    const nuevos        = idsActuales.filter(id => !conocidos.includes(id))
+    setOrdenIds([...conocidos, ...nuevos])
+  }, [bancos])
+
+  const bancosOrdenados = useMemo(() => {
+    const porId = new Map(bancos.map(b => [b.id, b]))
+    return ordenIds.map(id => porId.get(id)).filter(Boolean)
+  }, [bancos, ordenIds])
+
+  function handleDragOver(id) {
+    return (e) => {
+      e.preventDefault()
+      if (!draggedId || draggedId === id) return
+      setOrdenIds(prev => {
+        const from = prev.indexOf(draggedId)
+        const to   = prev.indexOf(id)
+        if (from === -1 || to === -1) return prev
+        const next = [...prev]
+        next.splice(from, 1)
+        next.splice(to, 0, draggedId)
+        return next
+      })
+    }
+  }
+
+  function handleDragEnd() {
+    setDraggedId(null)
+    guardarOrden(ordenIds)
+  }
+
   return (
     <div>
       <div style={{
@@ -166,18 +247,42 @@ export default function BancoList({ bancos, loading, onSelect, onDelete, onAddCl
               : `${bancos.length} banco${bancos.length !== 1 ? 's' : ''} configurado${bancos.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button
-          onClick={onAddClick}
-          className="btn-primary"
-          style={{
-            background: '#2563eb', color: '#fff', border: 'none',
-            borderRadius: 9, padding: '11px 22px', fontSize: 14,
-            fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          <span style={{ fontSize: 16 }}>+</span> Agregar banco
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {bancos.length > 1 && (
+            <button
+              onClick={() => setEditando(p => !p)}
+              className="btn-secondary"
+              style={{
+                background: editando ? '#0d1b4b' : '#fff', color: editando ? '#fff' : '#0d1b4b',
+                border: '1.5px solid #0d1b4b',
+                borderRadius: 9, padding: '11px 18px', fontSize: 14, fontWeight: 700,
+              }}
+            >
+              {editando ? '✓ Listo' : '⠿ Editar orden'}
+            </button>
+          )}
+          <button
+            onClick={onAddClick}
+            className="btn-primary"
+            style={{
+              background: '#2563eb', color: '#fff', border: 'none',
+              borderRadius: 9, padding: '11px 22px', fontSize: 14,
+              fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>+</span> Agregar banco
+          </button>
+        </div>
       </div>
+
+      {editando && (
+        <div style={{
+          background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8,
+          padding: '10px 14px', fontSize: 12, color: '#1d4ed8', marginBottom: 16,
+        }}>
+          Arrastrá las tarjetas (⠿) para ordenarlas como quieras. El orden se guarda en este navegador.
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>Cargando...</div>
@@ -206,8 +311,16 @@ export default function BancoList({ bancos, loading, onSelect, onDelete, onAddCl
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {bancos.map(b => (
-            <BancoCard key={b.id} banco={b} onSelect={onSelect} onDelete={onDelete} onGestionar={onGestionar} />
+          {bancosOrdenados.map(b => (
+            <BancoCard
+              key={b.id} banco={b} onSelect={onSelect} onDelete={onDelete} onGestionar={onGestionar}
+              editando={editando}
+              onDragStart={() => setDraggedId(b.id)}
+              onDragOver={handleDragOver(b.id)}
+              onDrop={e => e.preventDefault()}
+              onDragEnd={handleDragEnd}
+              isDragging={draggedId === b.id}
+            />
           ))}
         </div>
       )}
