@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import HomePage from './components/HomePage'
 import BancosPage from './components/BancosPage'
 import Login from './components/Login'
+import { apiFetch, UNAUTHORIZED_EVENT } from './api'
 
 export default function App() {
   const [authState, setAuthState] = useState('checking') // checking | authenticated | unauthenticated
@@ -12,7 +13,7 @@ export default function App() {
 
   const fetchBancos = useCallback(async () => {
     try {
-      const res = await fetch('/api/bancos')
+      const res = await apiFetch('/api/bancos')
       if (res.ok) setBancos(await res.json())
     } catch {}
   }, [])
@@ -22,6 +23,12 @@ export default function App() {
       .then(res => res.json())
       .then(data => setAuthState(data.authenticated ? 'authenticated' : 'unauthenticated'))
       .catch(() => setAuthState('unauthenticated'))
+  }, [])
+
+  useEffect(() => {
+    const handleUnauthorized = () => setAuthState('unauthenticated')
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized)
   }, [])
 
   useEffect(() => {

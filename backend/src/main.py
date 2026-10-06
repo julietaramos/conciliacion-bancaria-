@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import os
 import secrets
 import uuid
@@ -36,7 +38,18 @@ TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "60"))
 # desactivado por completo — sin fricción para el flujo local existente.
 APP_PASSWORD   = os.getenv("APP_PASSWORD")
 SESSION_COOKIE = "cb_session"
-_SESSION_TOKEN = secrets.token_hex(32)  # único por proceso: reiniciar el server cierra las sesiones
+SESSION_TOKEN_SALT = b"cb_session_v1"
+
+
+def _derive_session_token(password: str | None) -> str | None:
+    if not password:
+        return None
+    return hmac.new(password.encode(), SESSION_TOKEN_SALT, hashlib.sha256).hexdigest()
+
+
+# Derivado de APP_PASSWORD para que la sesión sobreviva a reinicios del server
+# (Render free duerme el contenedor); cambiar la contraseña invalida las sesiones.
+_SESSION_TOKEN = _derive_session_token(APP_PASSWORD)
 
 
 @asynccontextmanager

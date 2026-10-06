@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { apiFetch } from '../api'
 
 function FileField({ label, hint, accept, onChange, file }) {
   const inputRef = useRef()
@@ -56,7 +57,7 @@ export default function FileUploader({ banco, onBack, onPreview }) {
     fd.append('banco',    bancoFile)
 
     try {
-      const res = await fetch('/api/conciliar/preview', { method: 'POST', body: fd })
+      const res = await apiFetch('/api/conciliar/preview', { method: 'POST', body: fd })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || `Error ${res.status}`)

@@ -4,8 +4,14 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./conciliaciones.db")
 
-# SQLite needs check_same_thread=False; ignored for PostgreSQL
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+POSTGRES_CONNECT_TIMEOUT_SECONDS = 10
+
+# SQLite needs check_same_thread=False; PostgreSQL gets a timeout so an
+# unreachable DB fails startup fast instead of hanging the server.
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"connect_timeout": POSTGRES_CONNECT_TIMEOUT_SECONDS}
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)

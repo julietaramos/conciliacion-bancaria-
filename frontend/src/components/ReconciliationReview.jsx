@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { apiFetch } from '../api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -670,7 +671,7 @@ export default function ReconciliationReview({ banco, previewData, onBack, onSuc
   async function handleGenerar(download = true) {
     setLoading(true); setError(null); setDone(false)
     try {
-      const res = await fetch('/api/conciliar/generar', {
+      const res = await apiFetch('/api/conciliar/generar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
