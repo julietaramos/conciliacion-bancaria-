@@ -4,6 +4,7 @@ import AddBancoModal from './AddBancoModal'
 import FileUploader from './FileUploader'
 import ReconciliationReview from './ReconciliationReview'
 import GestionarAnteriorModal from './GestionarAnteriorModal'
+import { apiFetch } from '../api'
 
 export default function BancosPage({ initialBanco, onClearInitial }) {
   const [bancos, setBancos]               = useState([])
@@ -19,7 +20,7 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
 
   const fetchBancos = useCallback(async () => {
     try {
-      const res = await fetch('/api/bancos')
+      const res = await apiFetch('/api/bancos')
       if (res.ok) setBancos(await res.json())
     } finally {
       setLoading(false)
@@ -29,7 +30,7 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
   useEffect(() => { fetchBancos() }, [fetchBancos])
 
   async function handleAddBanco(nombre) {
-    const res = await fetch('/api/bancos', {
+    const res = await apiFetch('/api/bancos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre }),
@@ -41,13 +42,13 @@ export default function BancosPage({ initialBanco, onClearInitial }) {
 
   async function handleDeleteBanco(id) {
     if (!window.confirm('¿Eliminás este banco y todas sus conciliaciones?')) return
-    await fetch(`/api/bancos/${id}`, { method: 'DELETE' })
+    await apiFetch(`/api/bancos/${id}`, { method: 'DELETE' })
     if (selectedBanco?.id === id) { setSelectedBanco(null); setPreviewData(null) }
     await fetchBancos()
   }
 
   async function handleEditar(banco) {
-    const res = await fetch(`/api/bancos/${banco.id}/ultima/editar`)
+    const res = await apiFetch(`/api/bancos/${banco.id}/ultima/editar`)
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `Error ${res.status}`)

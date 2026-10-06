@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { apiFetch } from '../api'
 
 function ActionCard({ icon, title, description, onClick, disabled }) {
   return (
@@ -52,7 +53,7 @@ export default function GestionarAnteriorModal({ banco, onClose, onDone, onEdita
   async function handleBorrar() {
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`/api/bancos/${banco.id}/anterior`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/bancos/${banco.id}/anterior`, { method: 'DELETE' })
       if (!res.ok && res.status !== 204) throw new Error('No se pudo eliminar.')
       setOk(true)
       setTimeout(() => { onDone?.(); onClose() }, 1400)
@@ -69,7 +70,7 @@ export default function GestionarAnteriorModal({ banco, onClose, onDone, onEdita
     const fd = new FormData()
     fd.append('archivo', archivo)
     try {
-      const res = await fetch(`/api/bancos/${banco.id}/anterior`, { method: 'POST', body: fd })
+      const res = await apiFetch(`/api/bancos/${banco.id}/anterior`, { method: 'POST', body: fd })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || `Error ${res.status}`)
