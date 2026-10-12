@@ -7,6 +7,7 @@ import { apiFetch, UNAUTHORIZED_EVENT } from './api'
 
 export default function App() {
   const [authState, setAuthState] = useState('checking') // checking | authenticated | unauthenticated
+  const [usuario, setUsuario] = useState(null)
   const [page, setPage]       = useState('home')
   const [bancos, setBancos]   = useState([])
   const [pendingBanco, setPendingBanco] = useState(null)
@@ -18,12 +19,17 @@ export default function App() {
     } catch {}
   }, [])
 
-  useEffect(() => {
+  const checkSession = useCallback(() => {
     fetch('/api/session')
       .then(res => res.json())
-      .then(data => setAuthState(data.authenticated ? 'authenticated' : 'unauthenticated'))
+      .then(data => {
+        setUsuario(data.usuario)
+        setAuthState(data.authenticated ? 'authenticated' : 'unauthenticated')
+      })
       .catch(() => setAuthState('unauthenticated'))
   }, [])
+
+  useEffect(checkSession, [checkSession])
 
   useEffect(() => {
     const handleUnauthorized = () => setAuthState('unauthenticated')
@@ -40,6 +46,14 @@ export default function App() {
     setPage('bancos')
   }
 
+  async function handleLogout() {
+    await fetch('/api/logout', { method: 'POST' }).catch(() => {})
+    setBancos([])
+    setPage('home')
+    setUsuario(null)
+    setAuthState('unauthenticated')
+  }
+
   function handleNavigate(newPage) {
     if (newPage !== 'bancos') setPendingBanco(null)
     setPage(newPage)
@@ -48,11 +62,11 @@ export default function App() {
 
   if (authState === 'checking') return null
   if (authState === 'unauthenticated') {
-    return <Login onSuccess={() => setAuthState('authenticated')} />
+    return <Login onSuccess={checkSession} />
   }
 
   return (
-    <Layout page={page} onNavigate={handleNavigate}>
+    <Layout page={page} onNavigate={handleNavigate} usuario={usuario} onLogout={handleLogout}>
       {page === 'home' && (
         <HomePage
           bancos={bancos}

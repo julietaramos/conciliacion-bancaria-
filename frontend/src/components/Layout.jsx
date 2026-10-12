@@ -1,9 +1,9 @@
 import Sidebar from './Sidebar'
 
-export default function Layout({ page, onNavigate, children }) {
+export default function Layout({ page, onNavigate, usuario, onLogout, children }) {
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar page={page} onNavigate={onNavigate} />
+      <Sidebar page={page} onNavigate={onNavigate} usuario={usuario} onLogout={onLogout} />
       <main style={{
         flex: 1,
         height: '100vh',

@@ -3,24 +3,28 @@ from sqlalchemy.orm import Session
 from db.models import Banco, Conciliacion
 
 
-def get_bancos(db: Session) -> list[Banco]:
-    return db.query(Banco).order_by(Banco.created_at).all()
+def _bancos_de(db: Session, usuario_id):
+    return db.query(Banco).filter(Banco.user_id == usuario_id)
 
 
-def get_banco(db: Session, banco_id: str) -> Banco | None:
-    return db.query(Banco).filter(Banco.id == banco_id).first()
+def get_bancos(db: Session, usuario_id) -> list[Banco]:
+    return _bancos_de(db, usuario_id).order_by(Banco.created_at).all()
 
 
-def create_banco(db: Session, nombre: str) -> Banco:
-    banco = Banco(nombre=nombre.strip())
+def get_banco(db: Session, banco_id: str, usuario_id) -> Banco | None:
+    return _bancos_de(db, usuario_id).filter(Banco.id == banco_id).first()
+
+
+def create_banco(db: Session, nombre: str, usuario_id) -> Banco:
+    banco = Banco(nombre=nombre.strip(), user_id=usuario_id)
     db.add(banco)
     db.commit()
     db.refresh(banco)
     return banco
 
 
-def delete_banco(db: Session, banco_id: str) -> bool:
-    banco = db.query(Banco).filter(Banco.id == banco_id).first()
+def delete_banco(db: Session, banco_id: str, usuario_id) -> bool:
+    banco = get_banco(db, banco_id, usuario_id)
     if not banco:
         return False
     db.delete(banco)
@@ -61,11 +65,13 @@ def save_conciliacion(
     banco_id: str | None = None,
     excel_bytes: bytes | None = None,
     estado_editable: dict | None = None,
+    usuario_id=None,
 ) -> Conciliacion:
     estado = "balanceada" if abs(result.get("diferencia") or 0) < TOLERANCIA_DIFERENCIA else "con_diferencias"
 
     row = Conciliacion(
         banco_id   = banco_id,
+        user_id    = usuario_id,
         fecha_datos    = result.get("fecha_datos"),
         saldo_banco    = result.get("saldo_banco"),
         saldo_contable = result.get("saldo_contable"),
@@ -128,14 +134,14 @@ def delete_ultima_conciliacion(db: Session, banco_id: str) -> bool:
     return True
 
 
-def upsert_anterior_partidas(db: Session, banco_id: str, partidas: dict) -> Conciliacion:
+def upsert_anterior_partidas(db: Session, banco_id: str, partidas: dict, usuario_id) -> Conciliacion:
     ultima = get_ultima_conciliacion(db, banco_id)
     if ultima:
         ultima.partidas_pendientes = partidas
         db.commit()
         db.refresh(ultima)
         return ultima
-    row = Conciliacion(banco_id=banco_id, estado="manual", partidas_pendientes=partidas)
+    row = Conciliacion(banco_id=banco_id, user_id=usuario_id, estado="manual", partidas_pendientes=partidas)
     db.add(row)
     db.commit()
     db.refresh(row)

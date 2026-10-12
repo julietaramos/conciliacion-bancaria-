@@ -1,8 +1,5 @@
 import asyncio
-import hashlib
-import hmac
 import os
-import secrets
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, date
@@ -21,7 +18,11 @@ from dotenv import load_dotenv
 from utils.excel_parser import parse_mayor, parse_extracto, parse_conciliacion_anterior
 from utils.reconciliation import reconcile
 from utils.excel_report import generate_excel_report
-from db.database import init_db, get_db
+from auth.service import (
+    DURACION_SESION, SESSION_COOKIE, auth_habilitada, cerrar_sesion, iniciar_sesion,
+    inicializar_usuario_principal, usuario_de_sesion,
+)
+from db.database import SessionLocal, init_db, get_db
 from db.crud import (
     get_bancos, get_banco, create_banco, delete_banco,
     save_conciliacion, get_ultima_conciliacion, get_anterior_data,
@@ -33,28 +34,18 @@ load_dotenv()
 APP_TZ  = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires"))
 TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "60"))
 
-# ── Auth (contraseña compartida simple) ─────────────────────────────────────────
-# Si APP_PASSWORD no está seteada (uso local con iniciar.bat), el gate queda
-# desactivado por completo — sin fricción para el flujo local existente.
-APP_PASSWORD   = os.getenv("APP_PASSWORD")
-SESSION_COOKIE = "cb_session"
-SESSION_TOKEN_SALT = b"cb_session_v1"
-
-
-def _derive_session_token(password: str | None) -> str | None:
-    if not password:
-        return None
-    return hmac.new(password.encode(), SESSION_TOKEN_SALT, hashlib.sha256).hexdigest()
-
-
-# Derivado de APP_PASSWORD para que la sesión sobreviva a reinicios del server
-# (Render free duerme el contenedor); cambiar la contraseña invalida las sesiones.
-_SESSION_TOKEN = _derive_session_token(APP_PASSWORD)
+# ── Auth (usuarios con datos separados) ─────────────────────────────────────────
+# Sin usuarios cargados ni APP_PASSWORD (uso local con iniciar.bat) el gate queda
+# desactivado y los datos no tienen dueño, igual que antes de existir usuarios.
+SESION_MAX_AGE_SEGUNDOS = int(DURACION_SESION.total_seconds())
+RUTAS_PUBLICAS = ("/api/login", "/api/logout", "/api/session")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    with SessionLocal() as db:
+        inicializar_usuario_principal(db)
     yield
 
 
@@ -68,42 +59,72 @@ app.add_middleware(
 )
 
 
+def _resolver_acceso(token: str | None) -> tuple[bool, object]:
+    """Devuelve (autorizado, usuario_id) para la cookie de sesión recibida."""
+    with SessionLocal() as db:
+        if not auth_habilitada(db):
+            return True, None
+        usuario = usuario_de_sesion(db, token)
+        return usuario is not None, usuario.id if usuario else None
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if not APP_PASSWORD:
-            return await call_next(request)
         path = request.url.path
-        if not path.startswith("/api") or path in ("/api/login", "/api/session"):
+        if not path.startswith("/api") or path in RUTAS_PUBLICAS:
             return await call_next(request)
-        if request.cookies.get(SESSION_COOKIE) != _SESSION_TOKEN:
+        autorizado, usuario_id = await asyncio.to_thread(_resolver_acceso, request.cookies.get(SESSION_COOKIE))
+        if not autorizado:
             return JSONResponse({"detail": "No autorizado."}, status_code=401)
+        request.state.usuario_id = usuario_id
         return await call_next(request)
 
 
 app.add_middleware(AuthMiddleware)
 
 
+def get_usuario_id(request: Request):
+    return getattr(request.state, "usuario_id", None)
+
+
 class LoginIn(BaseModel):
+    usuario: str
     password: str
 
 
 @app.post("/api/login")
-def login(body: LoginIn, response: Response, request: Request):
-    if not APP_PASSWORD or not secrets.compare_digest(body.password, APP_PASSWORD):
-        raise HTTPException(401, "Contraseña incorrecta.")
+def login(body: LoginIn, response: Response, request: Request, db: Session = Depends(get_db)):
+    token = iniciar_sesion(db, body.usuario, body.password)
+    if not token:
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
     response.set_cookie(
-        SESSION_COOKIE, _SESSION_TOKEN,
+        SESSION_COOKIE, token,
         httponly=True, samesite="lax", secure=(request.url.scheme == "https"),
-        max_age=60 * 60 * 24 * 30,
+        max_age=SESION_MAX_AGE_SEGUNDOS,
     )
     return {"ok": True}
 
 
+@app.post("/api/logout")
+def logout(response: Response, request: Request, db: Session = Depends(get_db)):
+    cerrar_sesion(db, request.cookies.get(SESSION_COOKIE))
+    response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
+
 @app.get("/api/session")
-def session_check(request: Request):
-    if not APP_PASSWORD:
-        return {"authenticated": True}
-    return {"authenticated": request.cookies.get(SESSION_COOKIE) == _SESSION_TOKEN}
+def session_check(request: Request, db: Session = Depends(get_db)):
+    if not auth_habilitada(db):
+        return {"authenticated": True, "usuario": None}
+    usuario = usuario_de_sesion(db, request.cookies.get(SESSION_COOKIE))
+    return {"authenticated": usuario is not None, "usuario": usuario.nombre if usuario else None}
+
+
+def _banco_del_usuario(db: Session, banco_id: str | None, usuario_id):
+    banco = get_banco(db, banco_id, usuario_id) if banco_id else None
+    if not banco:
+        raise HTTPException(404, "Banco no encontrado.")
+    return banco
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -254,8 +275,8 @@ class BancoIn(BaseModel):
 
 
 @app.get("/api/bancos")
-def listar_bancos(db: Session = Depends(get_db)):
-    bancos = get_bancos(db)
+def listar_bancos(db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
+    bancos = get_bancos(db, usuario_id)
     return [
         {
             "id":     str(b.id),
@@ -267,25 +288,24 @@ def listar_bancos(db: Session = Depends(get_db)):
 
 
 @app.post("/api/bancos", status_code=201)
-def agregar_banco(body: BancoIn, db: Session = Depends(get_db)):
+def agregar_banco(body: BancoIn, db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
     if not body.nombre.strip():
         raise HTTPException(422, "El nombre del banco no puede estar vacío.")
-    banco = create_banco(db, body.nombre)
+    banco = create_banco(db, body.nombre, usuario_id)
     return {"id": str(banco.id), "nombre": banco.nombre}
 
 
 @app.delete("/api/bancos/{banco_id}", status_code=204)
-def eliminar_banco(banco_id: str, db: Session = Depends(get_db)):
-    if not delete_banco(db, banco_id):
+def eliminar_banco(banco_id: str, db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
+    if not delete_banco(db, banco_id, usuario_id):
         raise HTTPException(404, "Banco no encontrado.")
 
 
 # ── Conciliación anterior (gestión manual) ────────────────────────────────────
 
 @app.delete("/api/bancos/{banco_id}/anterior", status_code=204)
-def eliminar_anterior(banco_id: str, db: Session = Depends(get_db)):
-    if not get_banco(db, banco_id):
-        raise HTTPException(404, "Banco no encontrado.")
+def eliminar_anterior(banco_id: str, db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
+    _banco_del_usuario(db, banco_id, usuario_id)
     delete_ultima_conciliacion(db, banco_id)
 
 
@@ -294,9 +314,9 @@ async def subir_anterior(
     banco_id: str,
     archivo: UploadFile = File(...),
     db: Session = Depends(get_db),
+    usuario_id=Depends(get_usuario_id),
 ):
-    if not get_banco(db, banco_id):
-        raise HTTPException(404, "Banco no encontrado.")
+    _banco_del_usuario(db, banco_id, usuario_id)
 
     file_bytes = await archivo.read()
     try:
@@ -313,7 +333,7 @@ async def subir_anterior(
         "col3": _serialize_items(anterior_data["col3"]),
         "col4": _serialize_items(anterior_data["col4"]),
     }
-    upsert_anterior_partidas(db, banco_id, partidas)
+    upsert_anterior_partidas(db, banco_id, partidas, usuario_id)
     return {"ok": True}
 
 
@@ -325,9 +345,9 @@ async def preview_endpoint(
     mayor:    UploadFile = File(...),
     banco:    UploadFile = File(...),
     db: Session = Depends(get_db),
+    usuario_id=Depends(get_usuario_id),
 ):
-    if not get_banco(db, banco_id):
-        raise HTTPException(404, "Banco no encontrado.")
+    _banco_del_usuario(db, banco_id, usuario_id)
 
     mayor_data, extracto_data = await _parse_archivos(mayor, banco)
     anterior_data = await asyncio.to_thread(get_anterior_data, db, banco_id)
@@ -361,14 +381,16 @@ async def preview_endpoint(
 async def generar_endpoint(
     body: dict,
     db: Session = Depends(get_db),
+    usuario_id=Depends(get_usuario_id),
 ):
     banco_id = body.get("banco_id")
-    if not banco_id or not get_banco(db, banco_id):
-        raise HTTPException(404, "Banco no encontrado.")
+    _banco_del_usuario(db, banco_id, usuario_id)
 
     result      = await asyncio.to_thread(_result_from_state, body)
     excel_bytes = await asyncio.to_thread(generate_excel_report, result)
-    await asyncio.to_thread(save_conciliacion, db, result, banco_id, excel_bytes, estado_editable=body)
+    await asyncio.to_thread(
+        save_conciliacion, db, result, banco_id, excel_bytes, estado_editable=body, usuario_id=usuario_id,
+    )
 
     return Response(
         content=excel_bytes,
@@ -380,7 +402,8 @@ async def generar_endpoint(
 # ── Editar última conciliación ──────────────────────────────────────────────────
 
 @app.get("/api/bancos/{banco_id}/ultima/editar")
-def obtener_ultima_editable(banco_id: str, db: Session = Depends(get_db)):
+def obtener_ultima_editable(banco_id: str, db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
+    _banco_del_usuario(db, banco_id, usuario_id)
     ultima = get_ultima_conciliacion(db, banco_id)
     if not ultima or not ultima.estado_editable:
         raise HTTPException(404, "No hay una conciliación editable guardada para este banco.")
@@ -390,7 +413,8 @@ def obtener_ultima_editable(banco_id: str, db: Session = Depends(get_db)):
 # ── Descarga última conciliación ──────────────────────────────────────────────
 
 @app.get("/api/bancos/{banco_id}/ultima/excel")
-def descargar_ultima(banco_id: str, db: Session = Depends(get_db)):
+def descargar_ultima(banco_id: str, db: Session = Depends(get_db), usuario_id=Depends(get_usuario_id)):
+    _banco_del_usuario(db, banco_id, usuario_id)
     ultima = get_ultima_conciliacion(db, banco_id)
     if not ultima or not ultima.excel_output:
         raise HTTPException(404, "No hay conciliación disponible para descargar.")

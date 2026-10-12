@@ -182,7 +182,14 @@ Bancos soportados: Galicia, Nación, Santander, BBVA y cualquier banco con colum
 La app corre como un único contenedor Docker (`Dockerfile` en la raíz) que sirve la API y el build de React desde el mismo origen.
 
 - **Base de datos**: Postgres (ej. proyecto free de Supabase) vía variable de entorno `DATABASE_URL`. Sin esa variable, usa SQLite local (solo para desarrollo — no persiste en hosts con filesystem efímero).
-- **Contraseña de acceso**: variable de entorno `APP_PASSWORD`. Si no está seteada, la app queda sin gate de login (comportamiento actual en local).
+- **Usuarios**: cada usuario ve solo sus bancos y conciliaciones. Se guardan en la tabla `usuarios` (contraseña hasheada).
+  - `APP_PASSWORD`: mantiene el login activo y, en el primer arranque sin usuarios, crea al usuario principal (`APP_USUARIO_PRINCIPAL`, por defecto `guillermo`) con esa contraseña. Ese primer usuario se queda con los datos cargados antes de existir usuarios.
+  - Alta de otro usuario o cambio de contraseña (desde `backend/src`, con `DATABASE_URL` apuntando a la base que corresponda; la contraseña se pide por consola):
+    ```bash
+    python crear_usuario.py tester2
+    python crear_usuario.py tester2 --cambiar-password
+    ```
+  - Sin `APP_PASSWORD` y sin usuarios, la app queda sin login (uso local).
 - **Hosting sugerido**: Render (plan free) — "New Web Service" → Environment: Docker → conectar este repo. Variables de entorno a cargar en el dashboard de Render: `DATABASE_URL`, `APP_PASSWORD`.
 
 Build local para probar el contenedor:
