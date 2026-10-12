@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import uuid
@@ -18,14 +19,16 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from dotenv import load_dotenv
 
+from utils.column_mapping import ESQUEMAS, EXTRACTO, MAYOR, Formato, PedidoFormato, leer_formato
 from utils.excel_parser import parse_mayor, parse_extracto, parse_conciliacion_anterior
+from utils.file_inspection import inspeccionar
 from utils.reconciliation import reconcile
 from utils.excel_report import generate_excel_report
 from db.database import init_db, get_db
 from db.crud import (
     get_bancos, get_banco, create_banco, delete_banco,
     save_conciliacion, get_ultima_conciliacion, get_anterior_data,
-    delete_ultima_conciliacion, upsert_anterior_partidas,
+    delete_ultima_conciliacion, upsert_anterior_partidas, guardar_formatos,
 )
 
 load_dotenv()
@@ -215,36 +218,54 @@ def _result_from_state(state: dict) -> dict:
     }
 
 
-async def _parse_archivos(mayor_file: UploadFile, banco_file: UploadFile):
-    mayor_bytes = await mayor_file.read()
-    banco_bytes = await banco_file.read()
-
+def _pedido_formato(formato_json: str | None, guardado: dict | None) -> PedidoFormato:
+    if not formato_json:
+        return PedidoFormato(guardado=guardado)
     try:
-        mayor_data = await asyncio.wait_for(
-            asyncio.to_thread(parse_mayor, mayor_bytes, mayor_file.filename),
+        pedido = json.loads(formato_json)
+        return PedidoFormato(
+            fila_encabezado=pedido.get("fila_encabezado"),
+            columnas=pedido.get("columnas"),
+            guardado=guardado,
+        )
+    except (ValueError, AttributeError):
+        raise HTTPException(422, "El formato de columnas enviado no es válido.")
+
+
+async def _leer_formato(tipo: str, archivo: UploadFile, pedido: PedidoFormato) -> Formato:
+    file_bytes = await archivo.read()
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(leer_formato, tipo, file_bytes, archivo.filename, pedido),
             timeout=TIMEOUT,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(504, "Timeout al procesar el Mayor Contable.")
+        raise HTTPException(504, f"Timeout al leer el {ESQUEMAS[tipo].nombre}.")
     except ValueError as e:
         raise HTTPException(422, str(e))
 
+
+async def _parsear(parser, formato: Formato) -> dict:
     try:
-        extracto_data = await asyncio.wait_for(
-            asyncio.to_thread(parse_extracto, banco_bytes, banco_file.filename),
-            timeout=TIMEOUT,
-        )
+        return await asyncio.wait_for(asyncio.to_thread(parser, formato), timeout=TIMEOUT)
     except asyncio.TimeoutError:
-        raise HTTPException(504, "Timeout al procesar el Extracto Bancario.")
+        raise HTTPException(504, f"Timeout al procesar el {formato.esquema.nombre}.")
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+
+async def _parse_archivos(mayor_file: UploadFile, banco_file: UploadFile, pedido_mayor, pedido_extracto):
+    formato_mayor    = await _leer_formato(MAYOR.tipo, mayor_file, pedido_mayor)
+    formato_extracto = await _leer_formato(EXTRACTO.tipo, banco_file, pedido_extracto)
+    mayor_data    = await _parsear(parse_mayor, formato_mayor)
+    extracto_data = await _parsear(parse_extracto, formato_extracto)
 
     if not mayor_data["items_debe"] and not mayor_data["items_haber"]:
         raise HTTPException(422, "El Mayor Contable no tiene movimientos válidos.")
     if not extracto_data["items_debito"] and not extracto_data["items_credito"]:
         raise HTTPException(422, "El Extracto Bancario no tiene movimientos válidos.")
 
-    return mayor_data, extracto_data
+    return mayor_data, extracto_data, formato_mayor, formato_extracto
 
 
 # ── Bancos ────────────────────────────────────────────────────────────────────
@@ -317,19 +338,50 @@ async def subir_anterior(
     return {"ok": True}
 
 
+# ── Formato de archivos: inspección de columnas ──────────────────────────────
+
+@app.post("/api/archivos/inspeccionar")
+async def inspeccionar_endpoint(
+    banco_id: str        = Form(...),
+    tipo:     str        = Form(...),
+    archivo:  UploadFile = File(...),
+    formato:  str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    banco = get_banco(db, banco_id)
+    if not banco:
+        raise HTTPException(404, "Banco no encontrado.")
+    if tipo not in ESQUEMAS:
+        raise HTTPException(422, f"Tipo de archivo desconocido: {tipo}.")
+
+    guardado = banco.formato_mayor if tipo == MAYOR.tipo else banco.formato_extracto
+    formato_leido = await _leer_formato(tipo, archivo, _pedido_formato(formato, guardado))
+    return await asyncio.to_thread(inspeccionar, formato_leido)
+
+
 # ── Conciliar: preview ────────────────────────────────────────────────────────
 
 @app.post("/api/conciliar/preview")
 async def preview_endpoint(
-    banco_id: str        = Form(...),
-    mayor:    UploadFile = File(...),
-    banco:    UploadFile = File(...),
+    banco_id:         str        = Form(...),
+    mayor:            UploadFile = File(...),
+    banco:            UploadFile = File(...),
+    formato_mayor:    str | None = Form(None),
+    formato_extracto: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    if not get_banco(db, banco_id):
+    banco_row = get_banco(db, banco_id)
+    if not banco_row:
         raise HTTPException(404, "Banco no encontrado.")
 
-    mayor_data, extracto_data = await _parse_archivos(mayor, banco)
+    mayor_data, extracto_data, formato_mayor_leido, formato_extracto_leido = await _parse_archivos(
+        mayor, banco,
+        _pedido_formato(formato_mayor, banco_row.formato_mayor),
+        _pedido_formato(formato_extracto, banco_row.formato_extracto),
+    )
+    await asyncio.to_thread(
+        guardar_formatos, db, banco_row, formato_mayor_leido.columnas, formato_extracto_leido.columnas,
+    )
     anterior_data = await asyncio.to_thread(get_anterior_data, db, banco_id)
     result = await asyncio.to_thread(reconcile, mayor_data, extracto_data, anterior_data)
 

@@ -1,31 +1,45 @@
 import io
 import math
 import re
-import unicodedata
 import pandas as pd
 
+from utils.column_mapping import Formato, es_vacio, normalizar
 
-def _find_col(columns, keywords: list[str]) -> str | None:
-    """Return the ORIGINAL column name (first match), using stripped/lowered comparison."""
-    for col in columns:
-        cl = str(col).lower().strip()
-        for kw in keywords:
-            if kw in cl:
-                return col
-    return None
+
+def leer_monto(value) -> float | None:
+    if es_vacio(value) or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        v = float(value)
+        return v if math.isfinite(v) else None
+    text = str(value)
+    digits = re.sub(r"[^\d,.]", "", text)
+    if not re.search(r"\d", digits):
+        return None
+    try:
+        number = float(_normalize_decimal_separator(digits))
+    except ValueError:
+        return None
+    return -number if "-" in text else number
+
+
+def _normalize_decimal_separator(digits: str) -> str:
+    """Accepts both 1.234,56 (AR) and 1,234.56: the last separator present is the decimal one."""
+    if "," in digits and "." in digits:
+        decimal, thousands = (",", ".") if digits.rfind(",") > digits.rfind(".") else (".", ",")
+        return digits.replace(thousands, "").replace(decimal, ".")
+    if digits.count(",") > 1 or digits.count(".") > 1:
+        return digits.replace(",", "").replace(".", "")
+    return digits.replace(",", ".")
 
 
 def _to_float(value) -> float:
-    if value is None:
-        return 0.0
-    if isinstance(value, (int, float)):
-        v = float(value)
-        return abs(v) if math.isfinite(v) else 0.0
-    cleaned = re.sub(r"[^\d,.\-]", "", str(value)).replace(",", ".")
-    try:
-        return abs(float(cleaned))
-    except ValueError:
-        return 0.0
+    number = leer_monto(value)
+    return abs(number) if number is not None else 0.0
+
+
+def es_monto_invalido(value) -> bool:
+    return not es_vacio(value) and leer_monto(value) is None
 
 
 def _to_date(value):
@@ -40,52 +54,51 @@ def _to_date(value):
         return None
 
 
-def parse_mayor(file_bytes: bytes, filename: str) -> dict:
-    ext = filename.lower().split(".")[-1]
-    if ext in ("xlsx", "xls"):
-        df = pd.read_excel(io.BytesIO(file_bytes), dtype=object)
-    else:
-        content = file_bytes.decode("latin-1", errors="replace")
-        df = pd.read_csv(io.StringIO(content), dtype=object, skipinitialspace=True)
+def fecha_de_movimiento(value):
+    """Bare numbers would parse as 1970 timestamps, so they never count as a movement date."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return None
+    return _to_date(value)
 
-    # Keep original column names — do NOT strip globally (avoids duplicate-name collisions)
-    cols = list(df.columns)
 
-    fecha_col = _find_col(cols, ["fecha", "fec", "date"])
-    desc_col  = _find_col(cols, ["leyenda", "concepto", "descripcion", "descripción", "detalle", "movimiento"])
-    debe_col  = _find_col(cols, ["debe"])
-    haber_col = _find_col(cols, ["haber"])
-    # Prefer a plain "saldo" column; exclude "saldo inicial/anterior" (running balance header)
-    saldo_col = None
-    for col in cols:
-        cl = str(col).lower().strip()
-        if "saldo" in cl and "inicial" not in cl and "anterior" not in cl:
-            saldo_col = col
-            break
+def filas_con_fecha(formato: Formato):
+    columna_fecha = formato.columna("fecha")
+    for _, row in formato.datos.iterrows():
+        fecha = fecha_de_movimiento(row[columna_fecha])
+        if fecha is not None:
+            yield fecha, row
 
-    if fecha_col is None or debe_col is None or haber_col is None:
-        raise ValueError(
-            f"No se encontraron columnas en '{filename}'. "
-            f"Se necesitan: Fecha, Debe, Haber. Columnas encontradas: {[str(c) for c in cols]}"
-        )
+
+def _texto(row, columna: str | None) -> str:
+    if columna is None or es_vacio(row[columna]):
+        return ""
+    return str(row[columna]).strip()
+
+
+def _exigir_valido(formato: Formato) -> None:
+    if formato.es_valido:
+        return
+    raise ValueError(f"{formato.esquema.nombre}: " + " ".join(formato.errores))
+
+
+def parse_mayor(formato: Formato) -> dict:
+    _exigir_valido(formato)
+    col_desc, col_debe, col_haber, col_saldo = (
+        formato.columna(c) for c in ("descripcion", "debe", "haber", "saldo")
+    )
 
     items_debe  = []
     items_haber = []
     saldo_final = 0.0
 
-    for _, row in df.iterrows():
-        fecha = _to_date(row[fecha_col])
-        if fecha is None:
-            continue
-
-        desc  = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] is not None else ""
-        debe  = _to_float(row[debe_col])
-        haber = _to_float(row[haber_col])
-        saldo = _to_signed_float(row[saldo_col]) if saldo_col is not None and row[saldo_col] is not None else None
+    for fecha, row in filas_con_fecha(formato):
+        desc  = _texto(row, col_desc)
+        debe  = _to_float(row[col_debe])
+        haber = _to_float(row[col_haber])
+        saldo = leer_monto(row[col_saldo]) if col_saldo is not None else None
 
         if saldo is not None:
             saldo_final = saldo
-
         if debe > 0:
             items_debe.append({"fecha": fecha, "descripcion": desc, "monto": debe})
         if haber > 0:
@@ -95,6 +108,43 @@ def parse_mayor(file_bytes: bytes, filename: str) -> dict:
         "items_debe":  items_debe,
         "items_haber": items_haber,
         "saldo_final": saldo_final,
+    }
+
+
+def parse_extracto(formato: Formato) -> dict:
+    _exigir_valido(formato)
+    col_desc, col_saldo = formato.columna("descripcion"), formato.columna("saldo")
+    usa_importe_con_signo = formato.modo_importe() == ("importe",)
+
+    items_debito  = []
+    items_credito = []
+    saldo_final   = 0.0
+
+    for fecha, row in filas_con_fecha(formato):
+        desc  = _texto(row, col_desc)
+        saldo = leer_monto(row[col_saldo]) if col_saldo is not None else None
+        if saldo is not None:
+            saldo_final = saldo
+
+        if usa_importe_con_signo:
+            valor = leer_monto(row[formato.columna("importe")])
+            if not valor:
+                continue
+            destino = items_debito if valor < 0 else items_credito
+            destino.append({"fecha": fecha, "descripcion": desc, "monto": abs(valor)})
+            continue
+
+        debito  = _to_float(row[formato.columna("debito")])
+        credito = _to_float(row[formato.columna("credito")])
+        if debito > 0:
+            items_debito.append({"fecha": fecha, "descripcion": desc, "monto": debito})
+        if credito > 0:
+            items_credito.append({"fecha": fecha, "descripcion": desc, "monto": credito})
+
+    return {
+        "items_debito":  items_debito,
+        "items_credito": items_credito,
+        "saldo_final":   saldo_final,
     }
 
 
@@ -111,11 +161,6 @@ def _anterior_item(date_v, desc_v, amt_v) -> dict | None:
         "monto":        monto,
         "mes_anterior": True,
     }
-
-
-def _normalize(value) -> str:
-    text = unicodedata.normalize("NFKD", str(value).strip().lower())
-    return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
 # Each group's header label maps to its "fecha" (first) column — the group's
@@ -147,7 +192,7 @@ def _find_group_columns(df) -> tuple[int, dict]:
             val = df.iat[r, c]
             if not isinstance(val, str):
                 continue
-            norm = _normalize(val)
+            norm = normalizar(val)
             for key, label in _GROUP_LABELS.items():
                 if key not in found and label in norm:
                     found[key] = c
@@ -217,94 +262,3 @@ def parse_conciliacion_anterior(file_bytes: bytes, filename: str) -> dict:
                     pendientes[key].append(it)
 
     return pendientes
-
-
-def _to_signed_float(value) -> float | None:
-    """Parse a value preserving sign. Returns None if not parseable."""
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        v = float(value)
-        return v if math.isfinite(v) else None
-    cleaned = re.sub(r"[^\d,.\-]", "", str(value)).replace(",", ".")
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def parse_extracto(file_bytes: bytes, filename: str) -> dict:
-    ext = filename.lower().split(".")[-1]
-    if ext in ("xlsx", "xls"):
-        df = pd.read_excel(io.BytesIO(file_bytes), dtype=object)
-    else:
-        content = file_bytes.decode("latin-1", errors="replace")
-        df = pd.read_csv(io.StringIO(content), dtype=object, skipinitialspace=True)
-
-    cols = list(df.columns)
-
-    fecha_col   = _find_col(cols, ["fecha", "fec", "date"])
-    desc_col    = _find_col(cols, ["descripcion", "descripción", "concepto", "movimiento"])
-    saldo_col   = _find_col(cols, ["saldo"])
-    importe_col = _find_col(cols, ["importe", "monto", "amount"])
-    debito_col  = _find_col(cols, ["debito", "débito", "debit", "cargo", "egreso", "salida"])
-    credito_col = _find_col(cols, ["credito", "crédito", "credit", "acredit", "ingreso", "entrada"])
-
-    if fecha_col is None:
-        raise ValueError(
-            f"No se encontró columna Fecha en '{filename}'. "
-            f"Columnas encontradas: {[str(c) for c in cols]}"
-        )
-
-    # Formato nuevo: columna importe única con +/- (positivo=crédito, negativo=débito)
-    # Formato viejo: columnas separadas Débito y Crédito
-    use_importe = importe_col is not None and debito_col is None and credito_col is None
-
-    if not use_importe and (debito_col is None or credito_col is None):
-        raise ValueError(
-            f"No se encontraron columnas de importes en '{filename}'. "
-            f"Se necesita una columna 'importe' (nuevo formato) o columnas 'Débito'/'Crédito' (formato anterior). "
-            f"Columnas encontradas: {[str(c) for c in cols]}"
-        )
-
-    items_debito  = []
-    items_credito = []
-    saldo_final   = 0.0
-
-    for _, row in df.iterrows():
-        fecha = _to_date(row[fecha_col])
-        if fecha is None:
-            continue
-
-        desc  = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] is not None else ""
-        saldo_raw = row[saldo_col] if saldo_col is not None and row[saldo_col] is not None else None
-        if saldo_raw is not None:
-            s = _to_signed_float(saldo_raw)
-            if s is not None:
-                saldo_final = s
-
-        if use_importe:
-            raw = row[importe_col]
-            if raw is None:
-                continue
-            valor = _to_signed_float(raw)
-            if valor is None or valor == 0:
-                continue
-            monto = abs(valor)
-            if valor < 0:
-                items_debito.append({"fecha": fecha, "descripcion": desc, "monto": monto})
-            else:
-                items_credito.append({"fecha": fecha, "descripcion": desc, "monto": monto})
-        else:
-            debito  = _to_float(row[debito_col])
-            credito = _to_float(row[credito_col])
-            if debito > 0:
-                items_debito.append({"fecha": fecha, "descripcion": desc, "monto": debito})
-            if credito > 0:
-                items_credito.append({"fecha": fecha, "descripcion": desc, "monto": credito})
-
-    return {
-        "items_debito":  items_debito,
-        "items_credito": items_credito,
-        "saldo_final":   saldo_final,
-    }

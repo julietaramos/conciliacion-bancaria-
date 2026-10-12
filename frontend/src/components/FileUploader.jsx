@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
 import { apiFetch } from '../api'
+import useInspeccionArchivo, { formatoElegido } from '../useInspeccionArchivo'
+import FormatoArchivo from './FormatoArchivo'
 
 function FileField({ label, hint, accept, onChange, file }) {
   const inputRef = useRef()
@@ -39,13 +41,28 @@ function FileField({ label, hint, accept, onChange, file }) {
   )
 }
 
-export default function FileUploader({ banco, onBack, onPreview }) {
-  const [mayorFile, setMayorFile] = useState(null)
-  const [bancoFile, setBancoFile] = useState(null)
-  const [loading, setLoading]     = useState(false)
-  const [error,   setError]       = useState(null)
+function ArchivoConFormato({ label, hint, archivo }) {
+  return (
+    <>
+      <FileField label={label} hint={hint} accept=".xlsx,.xls,.csv" file={archivo.archivo} onChange={archivo.seleccionar} />
+      <FormatoArchivo
+        inspeccion={archivo.inspeccion}
+        cargando={archivo.cargando}
+        error={archivo.error}
+        onCambiarColumna={archivo.cambiarColumna}
+        onCambiarFilaEncabezado={archivo.cambiarFilaEncabezado}
+      />
+    </>
+  )
+}
 
-  const canSubmit = mayorFile && bancoFile && !loading
+export default function FileUploader({ banco, onBack, onPreview }) {
+  const mayor    = useInspeccionArchivo(banco.id, 'mayor')
+  const extracto = useInspeccionArchivo(banco.id, 'extracto')
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const canSubmit = mayor.listo && extracto.listo && !loading
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -53,8 +70,10 @@ export default function FileUploader({ banco, onBack, onPreview }) {
 
     const fd = new FormData()
     fd.append('banco_id', banco.id)
-    fd.append('mayor',    mayorFile)
-    fd.append('banco',    bancoFile)
+    fd.append('mayor',    mayor.archivo)
+    fd.append('banco',    extracto.archivo)
+    fd.append('formato_mayor',    JSON.stringify(formatoElegido(mayor.inspeccion)))
+    fd.append('formato_extracto', JSON.stringify(formatoElegido(extracto.inspeccion)))
 
     try {
       const res = await apiFetch('/api/conciliar/preview', { method: 'POST', body: fd })
@@ -78,20 +97,16 @@ export default function FileUploader({ banco, onBack, onPreview }) {
         <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Nueva conciliación bancaria</p>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, padding: '32px 36px', boxShadow: '0 1px 4px rgba(13,27,75,0.08)', maxWidth: 600 }}>
-        <FileField
+      <div style={{ background: '#fff', borderRadius: 12, padding: '32px 36px', boxShadow: '0 1px 4px rgba(13,27,75,0.08)', maxWidth: 760 }}>
+        <ArchivoConFormato
           label="Mayor Contable"
-          hint="Excel con columnas: Fecha, Leyenda / Concepto, Debe, Haber"
-          accept=".xlsx,.xls,.csv"
-          file={mayorFile}
-          onChange={f => { setMayorFile(f) }}
+          hint="Excel o CSV con Fecha, Debe y Haber (las columnas se detectan solas y se pueden ajustar)"
+          archivo={mayor}
         />
-        <FileField
+        <ArchivoConFormato
           label="Extracto Bancario"
-          hint="Excel con columnas: Fecha, Descripción, Débito, Crédito"
-          accept=".xlsx,.xls,.csv"
-          file={bancoFile}
-          onChange={f => { setBancoFile(f) }}
+          hint="Excel o CSV con Fecha y Débito/Crédito o Importe con signo (las columnas se detectan solas y se pueden ajustar)"
+          archivo={extracto}
         />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8, background: '#f0f7ff', border: '1px solid #bfdbfe', marginBottom: 24, fontSize: 12, color: '#1d4ed8' }}>
