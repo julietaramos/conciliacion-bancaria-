@@ -1,23 +1,34 @@
 import { useState } from 'react'
 
+const inputStyle = {
+  display: 'block', width: '100%',
+  padding: '11px 14px', borderRadius: 8,
+  border: '2px solid #e2e8f0',
+  fontSize: 14, outline: 'none', marginBottom: 16,
+  transition: 'border-color 0.15s',
+}
+
 export default function Login({ onSuccess }) {
+  const [usuario, setUsuario]   = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState(null)
 
+  const canSubmit = usuario.trim() && password && !loading
+
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!password) return
+    if (!canSubmit) return
     setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ usuario, password }),
       })
       if (!res.ok) {
-        setError('Contraseña incorrecta.')
+        setError('Usuario o contraseña incorrectos.')
         setLoading(false)
         return
       }
@@ -42,23 +53,28 @@ export default function Login({ onSuccess }) {
           Conciliación Bancaria
         </h1>
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 24 }}>
-          Ingresá la contraseña para continuar.
+          Ingresá tu usuario y contraseña para continuar.
         </p>
 
         <form onSubmit={handleSubmit}>
           <input
             autoFocus
+            type="text"
+            autoComplete="username"
+            value={usuario}
+            onChange={e => setUsuario(e.target.value)}
+            placeholder="Usuario"
+            style={inputStyle}
+            onFocus={e => e.target.style.borderColor = '#2563eb'}
+            onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+          />
+          <input
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Contraseña"
-            style={{
-              display: 'block', width: '100%',
-              padding: '11px 14px', borderRadius: 8,
-              border: '2px solid #e2e8f0',
-              fontSize: 14, outline: 'none', marginBottom: 16,
-              transition: 'border-color 0.15s',
-            }}
+            style={inputStyle}
             onFocus={e => e.target.style.borderColor = '#2563eb'}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
           />
@@ -69,14 +85,14 @@ export default function Login({ onSuccess }) {
 
           <button
             type="submit"
-            disabled={!password || loading}
+            disabled={!canSubmit}
             style={{
               width: '100%',
-              background: password && !loading ? '#2563eb' : '#c7d5f0',
+              background: canSubmit ? '#2563eb' : '#c7d5f0',
               color: '#fff', border: 'none',
               borderRadius: 8, padding: '11px 20px', fontSize: 14,
               fontWeight: 700,
-              cursor: password && !loading ? 'pointer' : 'not-allowed',
+              cursor: canSubmit ? 'pointer' : 'not-allowed',
             }}
           >
             {loading ? 'Ingresando...' : 'Ingresar'}

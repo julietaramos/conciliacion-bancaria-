@@ -17,6 +17,25 @@ class GUID(types.TypeDecorator):
         return uuid.UUID(value) if value else None
 
 
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id            = Column(GUID, primary_key=True, default=uuid.uuid4)
+    nombre        = Column(String(100), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at    = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Sesion(Base):
+    __tablename__ = "sesiones"
+
+    token_hash = Column(String(64), primary_key=True)
+    usuario_id = Column(GUID, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True)
+    expira     = Column(DateTime(timezone=True), nullable=False)
+
+    usuario = relationship("Usuario")
+
+
 class Banco(Base):
     __tablename__ = "bancos"
 

@@ -3,7 +3,7 @@ const NAV = [
   { id: 'bancos', icon: '🏦', label: 'Bancos' },
 ]
 
-export default function Sidebar({ page, onNavigate }) {
+export default function Sidebar({ page, onNavigate, usuario, onLogout }) {
   return (
     <aside style={{
       width: 240,
@@ -76,6 +76,20 @@ export default function Sidebar({ page, onNavigate }) {
 
       {/* Footer */}
       <div style={{ padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        {usuario && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+            <span style={{ color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              👤 {usuario}
+            </span>
+            <button
+              onClick={onLogout}
+              className="nav-item"
+              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#94b0d6', fontSize: 11, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+            >
+              Salir
+            </button>
+          </div>
+        )}
         <div style={{ fontSize: 11, color: '#4a6fa5' }}>v1.0 · Uso interno</div>
       </div>
     </aside>
