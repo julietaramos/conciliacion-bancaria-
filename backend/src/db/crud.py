@@ -28,6 +28,12 @@ def delete_banco(db: Session, banco_id: str) -> bool:
     return True
 
 
+def guardar_formatos(db: Session, banco: Banco, formato_mayor: dict, formato_extracto: dict) -> None:
+    banco.formato_mayor = formato_mayor
+    banco.formato_extracto = formato_extracto
+    db.commit()
+
+
 def _serialize_items(items: list[dict]) -> list[dict]:
     result = []
     for item in items:

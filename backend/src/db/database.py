@@ -35,15 +35,25 @@ def init_db():
     _add_missing_columns()
 
 
+_COLUMNAS_AGREGADAS = {
+    "conciliaciones": {"estado_editable": "JSON"},
+    "bancos":         {"formato_mayor": "JSON", "formato_extracto": "JSON"},
+}
+
+
 def _add_missing_columns():
     """Lightweight additive migration — no Alembic in this project. Only ever
     ADDs nullable columns that create_all() can't add to a pre-existing table."""
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
-    if "conciliaciones" not in inspector.get_table_names():
-        return
-    existing = {c["name"] for c in inspector.get_columns("conciliaciones")}
-    if "estado_editable" not in existing:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE conciliaciones ADD COLUMN estado_editable JSON"))
+    tablas = inspector.get_table_names()
+    for tabla, columnas in _COLUMNAS_AGREGADAS.items():
+        if tabla not in tablas:
+            continue
+        existentes = {c["name"] for c in inspector.get_columns(tabla)}
+        for columna, tipo in columnas.items():
+            if columna in existentes:
+                continue
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}"))

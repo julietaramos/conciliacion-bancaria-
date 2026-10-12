@@ -24,6 +24,8 @@ class Banco(Base):
     user_id    = Column(GUID, nullable=True, index=True)
     nombre     = Column(String(200), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    formato_mayor    = Column(JSON, nullable=True)  # {campo: nombre de columna} usado en la última conciliación
+    formato_extracto = Column(JSON, nullable=True)
 
     conciliaciones = relationship("Conciliacion", back_populates="banco", cascade="all, delete-orphan")
 
