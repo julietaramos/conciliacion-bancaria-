@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PasswordInput from './PasswordInput'
 
 const inputStyle = {
   display: 'block', width: '100%',
@@ -68,13 +69,13 @@ export default function Login({ onSuccess }) {
             onFocus={e => e.target.style.borderColor = '#2563eb'}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
           />
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Contraseña"
-            style={inputStyle}
+            style={{ ...inputStyle, marginBottom: 0 }}
+            wrapperStyle={{ marginBottom: inputStyle.marginBottom }}
             onFocus={e => e.target.style.borderColor = '#2563eb'}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
           />
