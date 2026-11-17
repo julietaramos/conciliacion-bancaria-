@@ -2,9 +2,20 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./conciliaciones.db")
-
 POSTGRES_CONNECT_TIMEOUT_SECONDS = 10
+POSTGRES_SCHEMES_WITHOUT_DRIVER = ("postgresql://", "postgres://")
+POSTGRES_PSYCOPG2_SCHEME = "postgresql+psycopg2://"
+
+
+def with_psycopg2_driver(url: str) -> str:
+    # SQLAlchemy 2.1 defaults postgresql:// to psycopg 3, but we install psycopg2.
+    for scheme in POSTGRES_SCHEMES_WITHOUT_DRIVER:
+        if url.startswith(scheme):
+            return POSTGRES_PSYCOPG2_SCHEME + url[len(scheme):]
+    return url
+
+
+DATABASE_URL = with_psycopg2_driver(os.getenv("DATABASE_URL", "sqlite:///./conciliaciones.db"))
 
 # SQLite needs check_same_thread=False; PostgreSQL gets a timeout so an
 # unreachable DB fails startup fast instead of hanging the server.
